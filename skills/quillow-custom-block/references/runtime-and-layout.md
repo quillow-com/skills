@@ -54,6 +54,44 @@ The SDK manages the host-provided font stylesheet, replacing/removing it on them
 changes. Google Fonts requires CSP allowances for its stylesheet and font origins.
 This does not enable arbitrary network requests.
 
+## Navigation
+
+An ordinary link opens its destination inside the widget's iframe. To navigate
+the main page in the current tab, use an absolute URL and `target="_top"`:
+
+```html
+<a
+  href="https://example.com/contact"
+  target="_top"
+  >Contact us</a
+>
+```
+
+`_top` changes the main page rather than the iframe. For a button, assign
+`window.top.location.href` directly in its click handler:
+
+```html
+<button
+  id="contact"
+  type="button"
+>
+  Contact us
+</button>
+<script>
+  document.querySelector('#contact').addEventListener('click', () => {
+    window.top.location.href = 'https://example.com/contact'
+  })
+</script>
+```
+
+Navigation requires a user action, such as clicking the link or button. Automatic
+redirects are blocked. Keep button navigation synchronous in the click handler;
+do not promise navigation after a timer or an asynchronous request.
+
+Do not recommend `target="_blank"` or `window.open`: the current sandbox blocks
+new windows and tabs. These navigation URLs are separate from package resource
+URLs, which must remain relative.
+
 ## Layout
 
 The block fills its assigned grid cell, not the browser's page. One package must
@@ -79,7 +117,7 @@ Serve through local HTTP. The wrapper should use:
 ```html
 <iframe
   src="http://127.0.0.1:PORT/package/index.html"
-  sandbox="allow-scripts"
+  sandbox="allow-scripts allow-top-navigation-by-user-activation"
   referrerpolicy="no-referrer"
   title="Custom widget"
   style="width:100%;height:100%;border:0"
@@ -90,7 +128,7 @@ Do not add `allow-same-origin`. On package responses, use the host's CSP with
 `PREFIX` replaced by the complete local package URL ending in `/`:
 
 ```text
-sandbox allow-scripts;
+sandbox allow-scripts allow-top-navigation-by-user-activation;
 default-src 'none';
 script-src 'unsafe-inline' PREFIX;
 style-src 'unsafe-inline' PREFIX https://fonts.googleapis.com;
@@ -113,3 +151,6 @@ Exercise the main interaction, invalid/empty values, keyboard focus, and exactly
 156 × 156, 336 × 156, and 336 × 336. Check console errors, missing assets, CSP
 violations, clipping, accidental scrolling, and undersized controls. A plain
 unsandboxed page does not reproduce this runtime.
+If the widget includes navigation, verify that a click on its link or button
+changes the main page. Keep top navigation restricted to user activation in both
+the iframe sandbox and CSP; do not add `allow-top-navigation` or `allow-popups`.

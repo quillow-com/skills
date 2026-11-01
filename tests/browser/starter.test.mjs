@@ -10,7 +10,7 @@ const viewports = [
   { name: 'large', width: 336, height: 336, introVisible: true },
 ]
 
-test('starter works in the host sandbox/CSP at every Quillow size', async (t) => {
+async function createHost(t, renderWidget) {
   const files = new Map()
   const types = {
     'index.html': 'text/html',
@@ -37,8 +37,15 @@ test('starter works in the host sandbox/CSP at every Quillow size', async (t) =>
     if (request.url === '/') {
       response.writeHead(200, { 'Content-Type': 'text/html' })
       response.end(
-        `<iframe title="Widget" sandbox="allow-scripts" referrerpolicy="no-referrer" src="${origin}/package/index.html" style="border:0;width:156px;height:156px"></iframe>`
+        `<iframe title="Widget" sandbox="allow-scripts allow-top-navigation-by-user-activation" referrerpolicy="no-referrer" src="${origin}/package/index.html" style="border:0;width:156px;height:156px"></iframe>`
       )
+
+      return
+    }
+
+    if (request.url === '/contact') {
+      response.writeHead(200, { 'Content-Type': 'text/html' })
+      response.end('<h1>Contact destination</h1>')
 
       return
     }
@@ -58,7 +65,7 @@ test('starter works in the host sandbox/CSP at every Quillow size', async (t) =>
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'no-referrer',
       'Content-Security-Policy': [
-        'sandbox allow-scripts',
+        'sandbox allow-scripts allow-top-navigation-by-user-activation',
         "default-src 'none'",
         `script-src 'unsafe-inline' ${prefix}`,
         `style-src 'unsafe-inline' ${prefix} https://fonts.googleapis.com`,
@@ -80,9 +87,18 @@ test('starter works in the host sandbox/CSP at every Quillow size', async (t) =>
   t.after(() => new Promise((resolve) => server.close(resolve)))
   origin = `http://127.0.0.1:${server.address().port}`
 
+  if (renderWidget) {
+    files.set('/package/index.html', renderWidget(origin))
+  }
+
   const browser = await chromium.launch()
   t.after(() => browser.close())
 
+  return { origin, browser }
+}
+
+test('starter works in the host sandbox/CSP at every Quillow size', async (t) => {
+  const { origin, browser } = await createHost(t)
   const page = await browser.newPage()
   const errors = []
   const failed = []
@@ -322,4 +338,134 @@ test('starter works in the host sandbox/CSP at every Quillow size', async (t) =>
 
   assert.deepEqual(errors, [])
   assert.deepEqual(failed, [])
+})
+
+test('navigation follows user activation and popup restrictions', async (t) => {
+  const { origin, browser } = await createHost(
+    t,
+    (origin) => `<!doctype html>
+      <a id="ordinary" href="${origin}/contact">Inside iframe</a>
+      <a id="top" href="${origin}/contact" target="_top">Main page</a>
+      <button id="button" type="button">Main page</button>
+      <a id="blank" href="${origin}/contact" target="_blank">New window</a>
+      <button id="popup" type="button">New window</button>
+      <script>
+        document.querySelector('#button').addEventListener('click', () => {
+          window.top.location.href = '${origin}/contact'
+        })
+        const popup = document.querySelector('#popup')
+        popup.addEventListener('click', () => {
+          popup.dataset.blocked = String(window.open('${origin}/contact') === null)
+        })
+      </script>`
+  )
+  const destination = `${origin}/contact`
+
+  await t.test('ordinary link navigates only the iframe', async (t) => {
+    const page = await browser.newPage()
+    t.after(() => page.close())
+    await page.goto(origin)
+    const widget = page.frame({ url: `${origin}/package/index.html` })
+
+    await Promise.all([
+      widget.waitForURL(destination),
+      widget.locator('#ordinary').click(),
+    ])
+
+    assert.equal(page.url(), `${origin}/`)
+    assert.equal(widget.url(), destination)
+    assert.equal(
+      await widget.locator('h1').textContent(),
+      'Contact destination'
+    )
+  })
+
+  for (const [name, selector] of [
+    ['_top link', '#top'],
+    ['synchronous button handler', '#button'],
+  ]) {
+    await t.test(`${name} navigates the main page after a click`, async (t) => {
+      const page = await browser.newPage()
+      t.after(() => page.close())
+      await page.goto(origin)
+
+      await Promise.all([
+        page.waitForURL(destination),
+        page.frameLocator('iframe').locator(selector).click(),
+      ])
+
+      assert.equal(page.url(), destination)
+      assert.equal(
+        await page.locator('h1').textContent(),
+        'Contact destination'
+      )
+      assert.equal(page.frames().length, 1)
+    })
+  }
+
+  for (const [name, selector] of [
+    ['_blank link', '#blank'],
+    ['window.open', '#popup'],
+  ]) {
+    await t.test(`${name} cannot open a new window`, async (t) => {
+      const page = await browser.newPage()
+      t.after(() => page.close())
+      await page.goto(origin)
+      const control = page.frameLocator('iframe').locator(selector)
+
+      await Promise.all([
+        page.waitForEvent('console', {
+          predicate: (message) =>
+            message.type() === 'error' &&
+            message.text().includes("'allow-popups'"),
+          timeout: 5000,
+        }),
+        control.click(),
+      ])
+
+      if (selector === '#popup') {
+        assert.equal(await control.getAttribute('data-blocked'), 'true')
+      }
+      assert.equal(page.context().pages().length, 1)
+      assert.equal(page.url(), `${origin}/`)
+      assert.equal(
+        page
+          .frames()
+          .find((frame) => frame.parentFrame() === page.mainFrame())
+          .url(),
+        `${origin}/package/index.html`
+      )
+    })
+  }
+})
+
+test('automatic top navigation is blocked without user activation', async (t) => {
+  const { origin, browser } = await createHost(
+    t,
+    (origin) => `<!doctype html>
+      <p id="result">Not attempted</p>
+      <script>
+        try {
+          window.top.location.href = '${origin}/contact'
+          document.querySelector('#result').textContent = 'Allowed'
+        } catch (error) {
+          document.querySelector('#result').textContent = error.name
+        }
+      </script>`
+  )
+  const page = await browser.newPage()
+  await page.goto(origin)
+
+  assert.equal(
+    await page.frameLocator('iframe').locator('#result').textContent(),
+    'SecurityError'
+  )
+  assert.equal(page.url(), `${origin}/`)
+  assert.equal(
+    page
+      .frames()
+      .find((frame) => frame.parentFrame() === page.mainFrame())
+      .url(),
+    `${origin}/package/index.html`
+  )
 })

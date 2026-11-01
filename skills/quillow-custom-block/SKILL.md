@@ -105,4 +105,11 @@ do not assume a particular editor, terminal tool, installation path, or browser 
   secrets, server-side code, or installation steps inside the generated block.
   Host-provided font stylesheets managed by the SDK are the supported external
   font exception; do not add arbitrary remote fonts.
+- For navigation in the main tab, use an absolute URL and `target="_top"` on
+  links. For buttons, assign `window.top.location.href` to an absolute URL
+  directly in the click handler. An ordinary link navigates inside the iframe;
+  `_top` changes the main page. Follow the runtime guide's navigation examples.
+- Navigation requires a user action; automatic redirects are blocked. Do not
+  promise navigation after a timer or an asynchronous request. Do not recommend
+  `target="_blank"` or `window.open`: the current sandbox blocks new windows.
 - Do not add manifest properties for height, permissions, theme, or resizing.
