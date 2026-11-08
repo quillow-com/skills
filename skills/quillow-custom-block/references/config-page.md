@@ -7,7 +7,8 @@ opens a separate settings screen. This extends **`schemaVersion: 1`**; there is 
 v2 manifest or `config`, `settings`, or storage-permissions property.
 
 Read [the package contract](package-contract.md) and [the storage guide](storage.md)
-first. The basic starter intentionally has no config page.
+first. The bundled SDK supports string storage over KV protocol v1; the manifest
+also stays v1. The basic starter intentionally has no config page.
 
 ## Add the page to a package
 
@@ -67,14 +68,15 @@ allow vertical scrolling. Do not constrain the form to the small/medium/large
 grid compositions or assume the SDK size attribute identifies a config page.
 
 The main widget and settings page are separate documents. They share the block's
-storage, not global variables. SDK 0.4.0 has no cross-session storage subscription.
+storage, not global variables. There is no cross-session storage subscription.
 Quillow remounts the editor preview after the modal closes, so the main entrypoint
 must read saved settings on startup. An already-open published page does not
 automatically refresh; read again on an explicit refresh or subsequent load.
 
 ## Minimal settings example
 
-The following example saves one `settings` entry containing `{ title }`. Adapt
+The following example saves one `settings` entry containing JSON text for
+`{ title }`. JSON is this example's choice, not a platform requirement. Adapt
 its UI to the block's theme and add any required fields/validation. Do not use
 form submission or browser storage. Nothing writes until the user clicks Save.
 
@@ -157,7 +159,7 @@ save.addEventListener('click', async () => {
   try {
     entry = await widget.storage.set(
       'settings',
-      { title: value },
+      JSON.stringify({ title: value }),
       { expectedRevision: entry?.revision }
     )
     status.textContent = 'Saved.'
@@ -190,7 +192,7 @@ async function load() {
     }
     entry = await widget.storage.get('settings')
     if (entry !== null) {
-      const value = entry.value?.title
+      const value = JSON.parse(entry.value)?.title
       if (typeof value !== 'string' || !value.trim() || value.length > 80) {
         throw new Error('Unsupported saved settings')
       }
@@ -243,7 +245,7 @@ async function loadSettings() {
     }
     const entry = await widget.storage.get('settings')
     if (entry !== null) {
-      const title = entry.value?.title
+      const title = JSON.parse(entry.value)?.title
       if (typeof title !== 'string' || !title.trim() || title.length > 80) {
         throw new Error('Unsupported saved settings')
       }
@@ -262,7 +264,9 @@ void loadSettings()
 
 This is one read, with no writes or automatic retries. It works in editor and
 public mode when granted `storage.get`. Use `textContent`, not `innerHTML`, for
-authored strings. Production widgets should validate the complete settings shape
+authored strings. Parse JSON only for keys whose application contract specifies
+JSON; other keys can contain any text, including empty strings. Catch malformed
+JSON without overwriting it. Production widgets should validate the complete settings shape
 and define migrations when changing that shape across code versions: storage
 belongs to the block and survives code replacement.
 

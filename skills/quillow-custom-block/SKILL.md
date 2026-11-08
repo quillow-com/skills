@@ -30,8 +30,11 @@ do not assume a particular editor, terminal tool, installation path, or browser 
    concept while improving fit, accessibility, and reliability.
 4. The bundled SDK supplies live theme, layout, and editor/published context.
    For persistent block data, read [the storage guide](references/storage.md).
-   `connect()` provides host-backed JSON storage when the host supports it:
+   `connect()` provides host-backed string storage when the host supports it:
    check each capability, write only in editor mode, and preserve revision tokens.
+   Values must be strings; use explicit serialization for structured settings.
+   The bundled SDK 0.4.0 supports strings over the existing v1 protocol. Its broader
+   JSON input support is not the platform contract: never pass objects directly.
    This is shared block data, not private visitor storage. Browser storage, remote
    APIs, and general Quillow account/page data remain unavailable. Resolve requests
    for those capabilities with the user; do not invent them or substitute fake data.

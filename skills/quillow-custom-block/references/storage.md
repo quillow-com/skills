@@ -1,6 +1,6 @@
 # Host-backed block storage
 
-The bundled SDK 0.4.0 adds `connect()` and one JSON key/value store,
+The string-storage contract exposes `connect()` and one text key/value store,
 `widget.storage`. Use it for persistent block settings or authored content.
 Storage belongs to the connected block, not the running code version or visitor.
 There are no public/private namespaces, `scope` option, or caller-supplied block ID.
@@ -9,7 +9,19 @@ There are no public/private namespaces, `scope` option, or caller-supplied block
 For an optional settings screen, see [the config-page guide](config-page.md).
 Its `editor.entrypoint` uses the same block storage as the main entrypoint; no
 separate storage scope or manifest permission is needed. Read settings on startup:
-there is no cross-session subscription in SDK 0.4.0.
+there is no cross-session subscription.
+
+## SDK compatibility
+
+String storage, theme/layout and widget manifest `schemaVersion` all use **v1**.
+The starter's pinned SDK **0.4.0** already supports sending and receiving strings;
+no runtime upgrade or new SDK release is required for these examples.
+
+SDK 0.4.0 also accepts other JSON values locally, but the host/API do not: always
+pass strings and serialize structured settings explicitly. New SDK source narrows
+the TypeScript types and runtime validation to strings. That release can be
+adopted separately without changing the wire protocol. Local browser tests can
+also use a built SDK through `QUILLOW_SDK_TEST_ENTRY`.
 
 **Do not store secrets or private visitor data.** Public connections may read the
 block's data when granted read capabilities. Public visitors cannot write, so this
@@ -97,15 +109,16 @@ rejections even after checking permissions.
 let settings = await widget.storage.get('settings')
 ```
 
-A missing entry is `null`. A present entry contains `key`, `value`, `revision`,
-`createdAt`, and `updatedAt`. A stored JSON null is an entry whose `value` is null,
-not a missing entry. Timestamps remain RFC 3339 strings. Validate the value's
-application-specific shape before rendering it, and use text-safe DOM APIs.
+A missing entry is `null`. A present entry contains `key`, string `value`,
+`revision`, `createdAt`, and `updatedAt`. An empty string is an existing value,
+not a missing entry. The literal text `'null'` is also a string, not null.
+Timestamps remain RFC 3339 strings. Validate application-specific content before
+rendering it, and use text-safe DOM APIs.
 
 Create only, without overwriting an existing key:
 
 ```js
-const created = await widget.storage.set('new-settings', { title: 'Hello' })
+const created = await widget.storage.set('new-title', 'Hello')
 ```
 
 Save a new or previously loaded settings entry:
@@ -114,7 +127,7 @@ Save a new or previously loaded settings entry:
 if (widget.mode === 'editor' && widget.capabilities.includes('storage.set')) {
   settings = await widget.storage.set(
     'settings',
-    { title: 'Updated title' },
+    JSON.stringify({ title: 'Updated title' }),
     { expectedRevision: settings?.revision }
   )
 }
@@ -162,21 +175,25 @@ limits are integers from 1 to 100. Fetch each page explicitly. Pass the non-null
 cursor back unchanged; do not derive it from a key or send `after: null`.
 For large views, load pages on demand instead of keeping all data in memory.
 
-## JSON and quotas
+## Strings, serialization, and quotas
 
 - Keys are 1–128 UTF-8 bytes, with no control characters or lone surrogates.
   Length is in bytes, not JavaScript characters. Keys are not trimmed or normalized.
-- Values must contain only plain JSON: null, booleans, finite numbers, strings,
-  plain objects, and dense arrays. Nested `undefined`, `BigInt`, non-finite numbers,
-  functions, symbols, cycles, array holes/extra properties, class instances,
-  `Date`, `Map`, `Set`, getters, and non-enumerable properties are rejected before
-  sending. Getters and `toJSON` are not invoked. Convert dates explicitly with
-  `toISOString()` and remove undefined fields.
-- `set()` takes a detached snapshot. Changing the input object after calling it
-  does not change the value sent to the host. Stored values do not replace your
-  application's schema validation.
-- The backend currently allows **64 KiB per value**, **256 entries**, and
-  **1 MiB per block**, as documented by SDK 0.4.0. The host/backend enforce quotas;
+- Values must be strings. Null, booleans, numbers, objects, arrays, `undefined`,
+  and other types are rejected, not automatically converted. Empty strings,
+  whitespace, quotes, newlines, and Unicode are preserved exactly. Zero bytes and
+  lone surrogates are invalid; PostgreSQL text cannot store a zero byte.
+- JSON is optional. Use ordinary text for titles or Markdown, and explicitly call
+  `JSON.stringify` / `JSON.parse` for structured settings. Catch parse failures and
+  validate the decoded shape. Do not parse arbitrary values or treat malformed
+  saved data as an empty entry that can be overwritten.
+- Existing JSON-backed values are migrated to serialized JSON text unchanged:
+  an object becomes `'{"title":"Hello"}'`, JSON null becomes `'null'`, and old
+  JSON strings retain their surrounding quotes. Any data migration belongs to
+  the widget; the SDK does not guess or automatically decode old values.
+- The backend currently allows **64 KiB of UTF-8 text per value**, **256 entries**,
+  and **1 MiB per block**, including keys. JSON transport escaping does not count
+  toward the value size. The host/backend enforce quotas;
   they are not archive limits or guarantees about future backend configurations.
 
 ## Errors and safe recovery
@@ -189,7 +206,7 @@ through unchanged. Catch errors around both connection setup and storage calls.
 | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | `widget_storage_conflict`                          | Read again, preserve the user's unsaved edit, and let them resolve the conflict. Never silently overwrite. |
 | `widget_storage_quota_exceeded`                    | Explain the limit and let the editor reduce data.                                                          |
-| `widget_storage_invalid` / `INVALID_ARGUMENT`      | Correct the key, JSON value, revision, or options; do not retry unchanged input.                           |
+| `widget_storage_invalid` / `INVALID_ARGUMENT`      | Correct the key, string value, revision, or options; do not retry unchanged input.                         |
 | `widget_storage_not_found`                         | Refresh the affected entry and update the UI.                                                              |
 | `PERMISSION_DENIED` or backend authorization codes | Show a read-only/unavailable state.                                                                        |
 | `HOST_UNAVAILABLE` / `CONNECT_TIMEOUT`             | Keep local behavior usable; storage was not connected.                                                     |

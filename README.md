@@ -52,7 +52,7 @@ uploads automatically; no separate publish step is required. Your plan must
 include Custom Code access.
 
 The runtime supports local interactivity, live theme/layout updates, and optional
-host-backed JSON storage for the block. Storage requires a compatible host and
+host-backed string storage for the block. Storage requires a compatible host and
 the corresponding capabilities; only editor connections can write. It is not
 private visitor storage. Remote APIs, CDN resources, browser storage, and general
 Quillow account/page data access remain unavailable. See the skill's
@@ -65,6 +65,12 @@ The starter includes SDK **0.4.0** as a local ESM module, `runtime.js`. Import
 as a classic script or expect `window.Quillow`. The starter starts the theme/layout
 bridge in `app.mjs` and keeps its example interaction local. Connect to storage
 only when the block needs persistent data.
+
+The pinned SDK 0.4.0 already supports string values over KV protocol v1. No new
+release or runtime replacement is needed for these examples. Its broader JSON
+input types are not the platform contract: always send strings and explicitly
+serialize structured settings. See
+[SDK compatibility](skills/quillow-custom-block/references/storage.md#sdk-compatibility).
 
 ## Run the tools directly
 
@@ -106,6 +112,16 @@ the repository. Browser tests run separately:
 npx playwright install chromium
 npm run test:browser
 ```
+
+To also exercise the examples against a locally built SDK without changing the
+published dependency pin:
+
+```sh
+QUILLOW_SDK_TEST_ENTRY=/absolute/path/to/custom-block-sdk/dist/index.js npm run test:browser
+```
+
+This overrides only the browser fixture's runtime. It does not upgrade the
+shipped starter bundle or establish release readiness.
 
 The browser test uses a local HTTP host with the sandbox/CSP/CORS contract from
 Quillow, plus parent bridge fixtures for live theme, font stylesheet, layout
