@@ -16,9 +16,11 @@ block.zip
 ```
 
 No outer project directory. Only the manifest and HTML entrypoint are required.
-The starter also includes the pinned SDK's standalone `runtime.js`; keep it in
-the ZIP and load it before author scripts. Do not include SDK source maps or npm
-package metadata. Runtime injection by the upload pipeline is not assumed.
+The starter also includes the pinned SDK's ESM bundle as `runtime.js`; keep it in
+the ZIP and import it from `app.mjs`. Load `app.mjs` with `type="module"`, not a
+classic `runtime.js` script tag. Do not include SDK source maps or npm package
+metadata. Runtime injection by the upload pipeline is not assumed. Storage needs
+no new manifest fields; see [the storage guide](storage.md).
 
 ```json
 {

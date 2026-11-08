@@ -97,6 +97,105 @@ async function createHost(t, renderWidget) {
   return { origin, browser }
 }
 
+const storageCapabilities = [
+  'storage.get',
+  'storage.list',
+  'storage.set',
+  'storage.delete',
+]
+
+function storageEntry(key, value, revision = 'revision-1') {
+  return {
+    key,
+    value,
+    revision,
+    createdAt: '2026-11-08T10:00:00Z',
+    updatedAt: '2026-11-08T10:00:00Z',
+  }
+}
+
+// Scripted responses exercise the published SDK through a real MessageChannel;
+// this fixture does not implement or verify the production KV backend.
+async function installStorageHost(
+  page,
+  { mode = 'editor', capabilities = storageCapabilities, replies = [] } = {}
+) {
+  await page.evaluate(
+    ({ mode, capabilities, replies }) => {
+      window.storageRequests = []
+      const sessions = new Set()
+      window.addEventListener('message', (event) => {
+        const data = event.data
+        if (
+          event.source !== document.querySelector('iframe').contentWindow ||
+          event.origin !== 'null' ||
+          data?.protocol !== 'quillow:custom-block' ||
+          data.version !== 1 ||
+          data.type !== 'connect' ||
+          sessions.has(data.connectionId)
+        )
+          return
+
+        sessions.add(data.connectionId)
+        const channel = new MessageChannel()
+        const envelope = {
+          protocol: 'quillow:custom-block',
+          version: 1,
+          connectionId: data.connectionId,
+        }
+        channel.port1.addEventListener('message', ({ data: request }) => {
+          if (request.type === 'disconnect') {
+            channel.port1.close()
+            return
+          }
+          if (request.type === 'ping') {
+            channel.port1.postMessage({
+              ...envelope,
+              type: 'pong',
+              requestId: request.requestId,
+            })
+            return
+          }
+          if (request.type !== 'request') return
+
+          window.storageRequests.push({
+            method: request.method,
+            params: request.params,
+          })
+          const reply = replies.shift()
+          if (!reply || reply.drop) return
+
+          channel.port1.postMessage({
+            ...envelope,
+            type: 'response',
+            requestId: request.requestId,
+            ok: !reply.error,
+            ...(reply.error
+              ? { error: reply.error }
+              : { result: reply.result }),
+          })
+        })
+        channel.port1.start()
+        event.source.postMessage(
+          {
+            ...envelope,
+            type: 'connected',
+            context: {
+              blockId: 'block-1',
+              versionId: 'version-1',
+              mode,
+              capabilities,
+            },
+          },
+          '*',
+          [channel.port2]
+        )
+      })
+    },
+    { mode, capabilities, replies }
+  )
+}
+
 test('starter works in the host sandbox/CSP at every Quillow size', async (t) => {
   const { origin, browser } = await createHost(t)
   const page = await browser.newPage()
@@ -468,4 +567,275 @@ test('automatic top navigation is blocked without user activation', async (t) =>
       .url(),
     `${origin}/package/index.html`
   )
+})
+
+test('local ESM storage supports CRUD, revisions, and pagination in the sandbox', async (t) => {
+  const { origin, browser } = await createHost(t)
+  const page = await browser.newPage()
+  const errors = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(message.text())
+  })
+  await page.goto(origin)
+
+  const created = storageEntry('settings', null)
+  const saved = storageEntry(
+    'settings',
+    { title: 'Updated title' },
+    'revision-2'
+  )
+  await installStorageHost(page, {
+    replies: [
+      { result: null },
+      { result: created },
+      { result: saved },
+      {
+        error: {
+          code: 'widget_storage_conflict',
+          message: 'Read again before updating',
+          details: { key: 'settings' },
+        },
+      },
+      { result: { entries: [saved], nextCursor: 'opaque-cursor' } },
+      { result: { entries: [storageEntry('other', true)], nextCursor: null } },
+      { result: true },
+      { result: null },
+    ],
+  })
+
+  const frame = page.frame({ url: `${origin}/package/index.html` })
+  const result = await frame.evaluate(async (parentOrigin) => {
+    const { connect, Quillow, WidgetSDKError } = await import('./runtime.js')
+    const widget = await connect({ parentOrigin })
+    try {
+      const missing = await widget.storage.get('settings')
+      const created = await widget.storage.set('settings', null)
+      const saved = await widget.storage.set(
+        'settings',
+        { title: 'Updated title' },
+        { expectedRevision: created.revision }
+      )
+      let conflict
+      try {
+        await widget.storage.set('settings', 'stale edit', {
+          expectedRevision: created.revision,
+        })
+      } catch (error) {
+        if (!(error instanceof WidgetSDKError)) throw error
+        conflict = { code: error.code, details: error.details }
+      }
+      const first = await widget.storage.list({ limit: 1 })
+      const next = await widget.storage.list({
+        after: first.nextCursor,
+        limit: 1,
+      })
+      const deleted = await widget.storage.delete('settings', {
+        expectedRevision: saved.revision,
+      })
+      const afterDelete = await widget.storage.get('settings')
+      return {
+        missing,
+        created,
+        saved,
+        conflict,
+        first,
+        next,
+        deleted,
+        afterDelete,
+        blockId: widget.blockId,
+        versionId: widget.versionId,
+        mode: widget.mode,
+        hasGlobal: 'Quillow' in window,
+        hasThemeContext: Quillow.getContext() !== undefined,
+      }
+    } finally {
+      widget.destroy()
+    }
+  }, origin)
+
+  assert.equal(result.missing, null)
+  assert.deepEqual(result.created, created)
+  assert.deepEqual(result.saved, saved)
+  assert.deepEqual(result.conflict, {
+    code: 'widget_storage_conflict',
+    details: { key: 'settings' },
+  })
+  assert.equal(result.next.nextCursor, null)
+  assert.equal(result.deleted, true)
+  assert.equal(result.afterDelete, null)
+  assert.equal(result.blockId, 'block-1')
+  assert.equal(result.versionId, 'version-1')
+  assert.equal(result.mode, 'editor')
+  assert.equal(result.hasGlobal, false)
+  assert.equal(result.hasThemeContext, false)
+  assert.deepEqual(await page.evaluate(() => window.storageRequests), [
+    { method: 'storage.get', params: { key: 'settings' } },
+    { method: 'storage.set', params: { key: 'settings', value: null } },
+    {
+      method: 'storage.set',
+      params: {
+        key: 'settings',
+        value: { title: 'Updated title' },
+        expectedRevision: 'revision-1',
+      },
+    },
+    {
+      method: 'storage.set',
+      params: {
+        key: 'settings',
+        value: 'stale edit',
+        expectedRevision: 'revision-1',
+      },
+    },
+    { method: 'storage.list', params: { limit: 1 } },
+    { method: 'storage.list', params: { limit: 1, after: 'opaque-cursor' } },
+    {
+      method: 'storage.delete',
+      params: { key: 'settings', expectedRevision: 'revision-2' },
+    },
+    { method: 'storage.get', params: { key: 'settings' } },
+  ])
+  assert.deepEqual(errors, [])
+})
+
+test('storage keeps public connections read-only and checks editor capabilities', async (t) => {
+  const { origin, browser } = await createHost(t)
+
+  for (const mode of ['public', 'editor']) {
+    await t.test(mode, async (t) => {
+      const page = await browser.newPage()
+      t.after(() => page.close())
+      await page.goto(origin)
+      await installStorageHost(page, {
+        mode,
+        // A public connection must reject writes even with these capabilities.
+        capabilities: mode === 'public' ? storageCapabilities : [],
+        replies: [{ result: null }],
+      })
+      const frame = page.frame({ url: `${origin}/package/index.html` })
+      const result = await frame.evaluate(async () => {
+        const { connect } = await import('./runtime.js')
+        const widget = await connect()
+        const codes = []
+        try {
+          if (widget.mode === 'public') {
+            await widget.storage.get('settings')
+          } else {
+            for (const read of [
+              () => widget.storage.get('settings'),
+              () => widget.storage.list(),
+            ]) {
+              try {
+                await read()
+              } catch (error) {
+                codes.push(error.code)
+              }
+            }
+          }
+          for (const write of [
+            () => widget.storage.set('settings', null),
+            () =>
+              widget.storage.delete('settings', {
+                expectedRevision: 'revision-1',
+              }),
+          ]) {
+            try {
+              await write()
+            } catch (error) {
+              codes.push(error.code)
+            }
+          }
+          return codes
+        } finally {
+          widget.destroy()
+        }
+      })
+      assert.deepEqual(
+        result,
+        Array(mode === 'public' ? 2 : 4).fill('PERMISSION_DENIED')
+      )
+      assert.deepEqual(
+        await page.evaluate(() => window.storageRequests),
+        mode === 'public'
+          ? [{ method: 'storage.get', params: { key: 'settings' } }]
+          : []
+      )
+    })
+  }
+})
+
+test('a timed-out mutation is not replayed and can be reconciled by reading', async (t) => {
+  const { origin, browser } = await createHost(t)
+  const page = await browser.newPage()
+  await page.goto(origin)
+  const committed = storageEntry('settings', { title: 'Saved' })
+  await installStorageHost(page, {
+    replies: [{ drop: true }, { result: committed }],
+  })
+  const frame = page.frame({ url: `${origin}/package/index.html` })
+  const result = await frame.evaluate(async () => {
+    const { connect, WidgetSDKError } = await import('./runtime.js')
+    const widget = await connect({ requestTimeout: 100 })
+    try {
+      let failure
+      try {
+        await widget.storage.set('settings', { title: 'Saved' })
+      } catch (error) {
+        if (!(error instanceof WidgetSDKError)) throw error
+        failure = {
+          code: error.code,
+          uncertain: error.mutationMayHaveSucceeded,
+        }
+      }
+      return { failure, entry: await widget.storage.get('settings') }
+    } finally {
+      widget.destroy()
+    }
+  })
+  assert.deepEqual(result, {
+    failure: { code: 'REQUEST_TIMEOUT', uncertain: true },
+    entry: committed,
+  })
+  assert.deepEqual(await page.evaluate(() => window.storageRequests), [
+    {
+      method: 'storage.set',
+      params: { key: 'settings', value: { title: 'Saved' } },
+    },
+    { method: 'storage.get', params: { key: 'settings' } },
+  ])
+})
+
+test('storage failures do not prevent local interaction or standalone previews', async (t) => {
+  const { origin, browser } = await createHost(t)
+  const page = await browser.newPage()
+  const errors = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  await page.goto(origin)
+  const frame = page.frame({ url: `${origin}/package/index.html` })
+  const timeout = await frame.evaluate(async () => {
+    const { connect } = await import('./runtime.js')
+    try {
+      await connect({ timeout: 100 })
+    } catch (error) {
+      return error.code
+    }
+  })
+  assert.equal(timeout, 'CONNECT_TIMEOUT')
+  await frame.locator('#action').click()
+  await expect(frame.locator('#action')).toHaveAttribute('aria-pressed', 'true')
+
+  await page.goto(`${origin}/package/index.html`)
+  const unavailable = await page.evaluate(async () => {
+    const { connect } = await import('./runtime.js')
+    try {
+      await connect()
+    } catch (error) {
+      return error.code
+    }
+  })
+  assert.equal(unavailable, 'HOST_UNAVAILABLE')
+  await page.locator('#action').click()
+  await expect(page.locator('#action')).toHaveAttribute('aria-pressed', 'true')
+  assert.deepEqual(errors, [])
 })
