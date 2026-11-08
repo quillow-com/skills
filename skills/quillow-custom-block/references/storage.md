@@ -14,14 +14,17 @@ there is no cross-session subscription.
 ## SDK compatibility
 
 String storage, theme/layout and widget manifest `schemaVersion` all use **v1**.
-The starter's pinned SDK **0.4.0** already supports sending and receiving strings;
-no runtime upgrade or new SDK release is required for these examples.
+The starter bundles the released SDK **0.5.0**, which enforces string-only storage
+in its TypeScript types and runtime validation. Non-string values, zero bytes,
+and lone surrogates are rejected locally with `INVALID_ARGUMENT` before a write
+is sent. Empty strings are valid. There is no automatic conversion: serialize
+structured settings explicitly and validate parsed data after reading.
 
-SDK 0.4.0 also accepts other JSON values locally, but the host/API do not: always
-pass strings and serialize structured settings explicitly. New SDK source narrows
-the TypeScript types and runtime validation to strings. That release can be
-adopted separately without changing the wire protocol. Local browser tests can
-also use a built SDK through `QUILLOW_SDK_TEST_ENTRY`.
+Existing SDK 0.4.0 widgets can still exchange strings over the same protocol, but
+their broader JSON input support does not change the host/API's string-only
+contract. New ZIPs should use the bundled 0.5.0 runtime. Already uploaded ZIPs are
+not upgraded automatically. Local browser tests can also use a built SDK through
+`QUILLOW_SDK_TEST_ENTRY`.
 
 **Do not store secrets or private visitor data.** Public connections may read the
 block's data when granted read capabilities. Public visitors cannot write, so this

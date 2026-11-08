@@ -154,21 +154,18 @@ function checkRevision(revision) {
   if (typeof revision !== "string" || revision.length === 0)
     invalidArgument("expectedRevision must be a non-empty revision token");
 }
+function validValue(value) {
+  return typeof value === "string" && !/[\u0000\uD800-\uDFFF]/u.test(value);
+}
 function timestamp(value) {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(value) && Number.isFinite(Date.parse(value));
 }
 function entry(value, expectedKey) {
-  if (!isRecord(value) || !validKey(value.key) || expectedKey !== void 0 && value.key !== expectedKey || !Object.hasOwn(value, "value") || typeof value.revision !== "string" || value.revision.length === 0 || !timestamp(value.createdAt) || !timestamp(value.updatedAt))
+  if (!isRecord(value) || !validKey(value.key) || expectedKey !== void 0 && value.key !== expectedKey || !Object.hasOwn(value, "value") || !validValue(value.value) || typeof value.revision !== "string" || value.revision.length === 0 || !timestamp(value.createdAt) || !timestamp(value.updatedAt))
     throw protocolError("The host returned an invalid storage entry");
-  let data;
-  try {
-    data = snapshotJson(value.value);
-  } catch (error) {
-    throw protocolError("The host returned a non-JSON storage value", error);
-  }
   return Object.freeze({
     key: value.key,
-    value: data,
+    value: value.value,
     revision: value.revision,
     createdAt: value.createdAt,
     updatedAt: value.updatedAt
@@ -212,10 +209,12 @@ function createStorage(context, request, assertOpen) {
       authorize("storage.set");
       checkKey(key);
       const { expectedRevision } = readOptions(options, ["expectedRevision"]);
+      if (!validValue(value))
+        invalidArgument("Storage values must be strings without zero bytes or lone surrogates");
       if (expectedRevision !== void 0) checkRevision(expectedRevision);
       const result = await request("storage.set", {
         key,
-        value: snapshotJson(value),
+        value,
         ...expectedRevision !== void 0 ? { expectedRevision } : {}
       });
       try {

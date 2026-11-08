@@ -714,6 +714,103 @@ test('local ESM storage supports CRUD, revisions, and pagination in the sandbox'
   assert.deepEqual(errors, [])
 })
 
+test('bundled SDK rejects invalid storage values locally and preserves string contents', async (t) => {
+  const { origin, browser } = await createHost(t)
+  const page = await browser.newPage()
+  await page.goto(origin)
+  const saved = storageEntry('text', '  Привет 🙂\n{"title":"Text"}\t')
+  await installStorageHost(page, { replies: [{ result: saved }] })
+  const frame = page.frame({ url: `${origin}/package/index.html` })
+  const result = await frame.evaluate(async (value) => {
+    const { connect, WidgetSDKError } = await import('./runtime.js')
+    const widget = await connect({ requestTimeout: 500 })
+    try {
+      const failures = []
+      for (const invalid of [
+        null,
+        undefined,
+        {},
+        [],
+        42,
+        false,
+        '\u0000',
+        '\ud800',
+        '\udfff',
+      ]) {
+        try {
+          await widget.storage.set('text', invalid)
+          failures.push(null)
+        } catch (error) {
+          if (!(error instanceof WidgetSDKError)) throw error
+          failures.push({
+            code: error.code,
+            uncertain: error.mutationMayHaveSucceeded,
+          })
+        }
+      }
+      return { failures, saved: await widget.storage.set('text', value) }
+    } finally {
+      widget.destroy()
+    }
+  }, saved.value)
+  assert.deepEqual(
+    result.failures,
+    Array(9).fill({ code: 'INVALID_ARGUMENT', uncertain: false })
+  )
+  assert.deepEqual(result.saved, saved)
+  assert.deepEqual(await page.evaluate(() => window.storageRequests), [
+    { method: 'storage.set', params: { key: 'text', value: saved.value } },
+  ])
+})
+
+test('bundled SDK rejects non-string storage values returned by a host', async (t) => {
+  const { origin, browser } = await createHost(t)
+  const page = await browser.newPage()
+  await page.goto(origin)
+  await installStorageHost(page, {
+    replies: [
+      { result: storageEntry('settings', { title: 'Not a string' }) },
+      {
+        result: { entries: [storageEntry('settings', null)], nextCursor: null },
+      },
+    ],
+  })
+  const frame = page.frame({ url: `${origin}/package/index.html` })
+  const failures = await frame.evaluate(async () => {
+    const { connect, WidgetSDKError } = await import('./runtime.js')
+    const widget = await connect()
+    try {
+      const failures = []
+      for (const read of [
+        () => widget.storage.get('settings'),
+        () => widget.storage.list(),
+      ]) {
+        try {
+          await read()
+          failures.push(null)
+        } catch (error) {
+          if (!(error instanceof WidgetSDKError)) throw error
+          failures.push({
+            code: error.code,
+            uncertain: error.mutationMayHaveSucceeded,
+          })
+        }
+      }
+      return failures
+    } finally {
+      widget.destroy()
+    }
+  })
+  assert.deepEqual(
+    failures,
+    Array(2).fill({ code: 'PROTOCOL_ERROR', uncertain: false })
+  )
+  assert.deepEqual(await page.evaluate(() => window.storageRequests), [
+    { method: 'storage.get', params: { key: 'settings' } },
+    { method: 'storage.list', params: { limit: 50 } },
+  ])
+})
+
 test('storage keeps public connections read-only and checks editor capabilities', async (t) => {
   const { origin, browser } = await createHost(t)
 

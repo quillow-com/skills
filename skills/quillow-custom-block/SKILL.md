@@ -33,8 +33,8 @@ do not assume a particular editor, terminal tool, installation path, or browser 
    `connect()` provides host-backed string storage when the host supports it:
    check each capability, write only in editor mode, and preserve revision tokens.
    Values must be strings; use explicit serialization for structured settings.
-   The bundled SDK 0.4.0 supports strings over the existing v1 protocol. Its broader
-   JSON input support is not the platform contract: never pass objects directly.
+   The bundled SDK 0.5.0 enforces string-only storage over the existing v1 protocol;
+   never pass objects directly or expect automatic serialization.
    This is shared block data, not private visitor storage. Browser storage and
    general Quillow account/page data remain unavailable. Resolve requests
    for those capabilities with the user; do not invent them or substitute fake data.
