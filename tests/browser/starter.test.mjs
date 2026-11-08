@@ -3,9 +3,13 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import path from 'node:path'
+import { env } from 'node:process'
 import test from 'node:test'
 
 import { configPageExample } from '../fixtures.mjs'
+
+const sdkEntry = env.QUILLOW_SDK_TEST_ENTRY
+const storageVersion = 1
 
 const viewports = [
   { name: 'small', width: 156, height: 156, introVisible: false },
@@ -37,6 +41,8 @@ async function createHost(t, renderWidget, extraFiles = {}) {
   for (const [name, content] of Object.entries(extraFiles)) {
     files.set(`/package/${name}`, content)
   }
+
+  if (sdkEntry) files.set('/package/runtime.js', await readFile(sdkEntry))
 
   let origin
 
@@ -128,7 +134,7 @@ async function installStorageHost(
   { mode = 'editor', capabilities = storageCapabilities, replies = [] } = {}
 ) {
   await page.evaluate(
-    ({ mode, capabilities, replies }) => {
+    ({ mode, capabilities, replies, storageVersion }) => {
       window.storageRequests = []
       const sessions = new Set()
       window.addEventListener('message', (event) => {
@@ -137,7 +143,7 @@ async function installStorageHost(
           event.source !== document.querySelector('iframe').contentWindow ||
           event.origin !== 'null' ||
           data?.protocol !== 'quillow:custom-block' ||
-          data.version !== 1 ||
+          data.version !== storageVersion ||
           data.type !== 'connect' ||
           sessions.has(data.connectionId)
         )
@@ -147,7 +153,7 @@ async function installStorageHost(
         const channel = new MessageChannel()
         const envelope = {
           protocol: 'quillow:custom-block',
-          version: 1,
+          version: storageVersion,
           connectionId: data.connectionId,
         }
         channel.port1.addEventListener('message', ({ data: request }) => {
@@ -199,7 +205,7 @@ async function installStorageHost(
         )
       })
     },
-    { mode, capabilities, replies }
+    { mode, capabilities, replies, storageVersion }
   )
 }
 
@@ -586,10 +592,10 @@ test('local ESM storage supports CRUD, revisions, and pagination in the sandbox'
   })
   await page.goto(origin)
 
-  const created = storageEntry('settings', null)
+  const created = storageEntry('settings', '')
   const saved = storageEntry(
     'settings',
-    { title: 'Updated title' },
+    JSON.stringify({ title: 'Updated title' }),
     'revision-2'
   )
   await installStorageHost(page, {
@@ -605,7 +611,9 @@ test('local ESM storage supports CRUD, revisions, and pagination in the sandbox'
         },
       },
       { result: { entries: [saved], nextCursor: 'opaque-cursor' } },
-      { result: { entries: [storageEntry('other', true)], nextCursor: null } },
+      {
+        result: { entries: [storageEntry('other', 'true')], nextCursor: null },
+      },
       { result: true },
       { result: null },
     ],
@@ -617,10 +625,10 @@ test('local ESM storage supports CRUD, revisions, and pagination in the sandbox'
     const widget = await connect({ parentOrigin })
     try {
       const missing = await widget.storage.get('settings')
-      const created = await widget.storage.set('settings', null)
+      const created = await widget.storage.set('settings', '')
       const saved = await widget.storage.set(
         'settings',
-        { title: 'Updated title' },
+        JSON.stringify({ title: 'Updated title' }),
         { expectedRevision: created.revision }
       )
       let conflict
@@ -678,12 +686,12 @@ test('local ESM storage supports CRUD, revisions, and pagination in the sandbox'
   assert.equal(result.hasThemeContext, false)
   assert.deepEqual(await page.evaluate(() => window.storageRequests), [
     { method: 'storage.get', params: { key: 'settings' } },
-    { method: 'storage.set', params: { key: 'settings', value: null } },
+    { method: 'storage.set', params: { key: 'settings', value: '' } },
     {
       method: 'storage.set',
       params: {
         key: 'settings',
-        value: { title: 'Updated title' },
+        value: JSON.stringify({ title: 'Updated title' }),
         expectedRevision: 'revision-1',
       },
     },
@@ -741,7 +749,7 @@ test('storage keeps public connections read-only and checks editor capabilities'
             }
           }
           for (const write of [
-            () => widget.storage.set('settings', null),
+            () => widget.storage.set('settings', ''),
             () =>
               widget.storage.delete('settings', {
                 expectedRevision: 'revision-1',
@@ -776,7 +784,7 @@ test('a timed-out mutation is not replayed and can be reconciled by reading', as
   const { origin, browser } = await createHost(t)
   const page = await browser.newPage()
   await page.goto(origin)
-  const committed = storageEntry('settings', { title: 'Saved' })
+  const committed = storageEntry('settings', JSON.stringify({ title: 'Saved' }))
   await installStorageHost(page, {
     replies: [{ drop: true }, { result: committed }],
   })
@@ -787,7 +795,7 @@ test('a timed-out mutation is not replayed and can be reconciled by reading', as
     try {
       let failure
       try {
-        await widget.storage.set('settings', { title: 'Saved' })
+        await widget.storage.set('settings', JSON.stringify({ title: 'Saved' }))
       } catch (error) {
         if (!(error instanceof WidgetSDKError)) throw error
         failure = {
@@ -807,7 +815,7 @@ test('a timed-out mutation is not replayed and can be reconciled by reading', as
   assert.deepEqual(await page.evaluate(() => window.storageRequests), [
     {
       method: 'storage.set',
-      params: { key: 'settings', value: { title: 'Saved' } },
+      params: { key: 'settings', value: JSON.stringify({ title: 'Saved' }) },
     },
     { method: 'storage.get', params: { key: 'settings' } },
   ])
@@ -857,10 +865,13 @@ test('documented config-page examples work with the sandboxed SDK', async (t) =>
       <script type="module" src="./reader.mjs"></script>`,
     'reader.mjs': example.readerScript,
   })
-  const created = storageEntry('settings', { title: 'First title' })
+  const created = storageEntry(
+    'settings',
+    JSON.stringify({ title: 'First title' })
+  )
   const updated = storageEntry(
     'settings',
-    { title: 'Updated title' },
+    JSON.stringify({ title: 'Updated title' }),
     'revision-2'
   )
 
