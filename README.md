@@ -63,16 +63,16 @@ remain unavailable. See the skill's
 [runtime guide](skills/quillow-custom-block/references/runtime-and-layout.md), and
 [storage guide](skills/quillow-custom-block/references/storage.md).
 
-The starter includes SDK **0.4.0** as a local ESM module, `runtime.js`. Import
+The starter includes SDK **0.5.0** as a local ESM module, `runtime.js`. Import
 `Quillow`, `connect`, and `WidgetSDKError` from that file as needed; do not load it
 as a classic script or expect `window.Quillow`. The starter starts the theme/layout
 bridge in `app.mjs` and keeps its example interaction local. Connect to storage
 only when the block needs persistent data.
 
-The pinned SDK 0.4.0 already supports string values over KV protocol v1. No new
-release or runtime replacement is needed for these examples. Its broader JSON
-input types are not the platform contract: always send strings and explicitly
-serialize structured settings. See
+SDK 0.5.0 enforces string-only storage in its types and runtime validation while
+keeping KV protocol v1. Always send strings and explicitly serialize structured
+settings; there is no automatic conversion. Widget manifest `schemaVersion` also
+remains `1`. See
 [SDK compatibility](skills/quillow-custom-block/references/storage.md#sdk-compatibility).
 
 ## Run the tools directly

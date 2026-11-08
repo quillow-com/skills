@@ -38,12 +38,12 @@ data in a JS module instead of fetching local JSON. With no declared origins,
 
 ## SDK bridge
 
-KV, theme/layout and widget manifest all remain v1. The pinned SDK 0.4.0 supports
-the string-based examples without a runtime upgrade. Always pass string values,
-even though that SDK's older input types also accept other JSON data. See
+KV, theme/layout and widget manifest all remain v1. The pinned SDK 0.5.0 enforces
+string-only storage in both its types and runtime validation. Always pass strings
+and explicitly serialize structured settings. See
 [SDK compatibility](storage.md#sdk-compatibility).
 
-The starter includes `@quillow/custom-block-sdk` **0.4.0** as a local ESM bundle,
+The starter includes `@quillow/custom-block-sdk` **0.5.0** as a local ESM bundle,
 `./runtime.js`. Its `app.mjs` imports the SDK and starts the theme/layout bridge:
 
 ```js
