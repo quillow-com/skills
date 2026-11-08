@@ -34,6 +34,17 @@ For persistent block content:
 > Create a price list block. Let me edit and save its items in the Quillow editor
 > using block storage. Published visitors should only read the saved items.
 
+For a separate config page:
+
+> Add a settings screen to my block using editor.entrypoint. Let me save a title
+> in block storage and show it in the published widget.
+
+The optional `editor.entrypoint` extends `schemaVersion: 1`; it does not require
+a new schema version. Quillow opens it from the block's settings button in the
+editor. See [the config-page guide](skills/quillow-custom-block/references/config-page.md)
+for a complete manifest and read/save examples. The default starter stays minimal
+and does not require a settings page.
+
 The agent keeps editable files, validates the resulting ZIP, and provides a file
 path or downloadable artifact depending on its environment. Select that ZIP in
 your Quillow Custom Code block's upload control. Quillow validates and applies
@@ -105,12 +116,14 @@ these tests along with archive tests and bundle checks.
 
 ### Contract maintenance
 
-The contract is based on `quillow-apis`'s
-`apps/api/internal/services/widget_packages/archive.go` and
-`apps/widget-host/src/index.js` as reviewed on 2026-10-26. Recheck those sources
-whenever the backend contract changes. Keep limits, documentation, fixtures, and
-starter synchronized. The local validator intentionally enforces canonical
-manifest spelling and valid Unicode instead of relying on Go decoder quirks.
+The manifest contract was checked against `quillow-apis`'s
+`apps/api/internal/entities/widget_package/package.go` and
+`apps/api/internal/services/widget_packages/archive.go`, including editor entrypoint
+tests, on 2026-11-08. Static hosting is maintained in `quillow-widget-host`.
+Recheck these sources whenever the backend contract changes. Keep limits,
+documentation, fixtures, and starter synchronized. The local validator
+intentionally enforces canonical manifest spelling and valid Unicode instead of
+relying on Go decoder quirks.
 
 ### Installation smoke test
 

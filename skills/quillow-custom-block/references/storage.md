@@ -6,6 +6,11 @@ Storage belongs to the connected block, not the running code version or visitor.
 There are no public/private namespaces, `scope` option, or caller-supplied block ID.
 `versionId` identifies the running code; it does not select a storage namespace.
 
+For an optional settings screen, see [the config-page guide](config-page.md).
+Its `editor.entrypoint` uses the same block storage as the main entrypoint; no
+separate storage scope or manifest permission is needed. Read settings on startup:
+there is no cross-session subscription in SDK 0.4.0.
+
 **Do not store secrets or private visitor data.** Public connections may read the
 block's data when granted read capabilities. Public visitors cannot write, so this
 is not a backend for submissions, visitor-specific preferences, or shared counters

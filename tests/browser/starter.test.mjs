@@ -2,7 +2,10 @@ import { chromium, expect } from '@playwright/test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
+import path from 'node:path'
 import test from 'node:test'
+
+import { configPageExample } from '../fixtures.mjs'
 
 const viewports = [
   { name: 'small', width: 156, height: 156, introVisible: false },
@@ -10,16 +13,16 @@ const viewports = [
   { name: 'large', width: 336, height: 336, introVisible: true },
 ]
 
-async function createHost(t, renderWidget) {
+async function createHost(t, renderWidget, extraFiles = {}) {
   const files = new Map()
   const types = {
-    'index.html': 'text/html',
-    'app.mjs': 'text/javascript',
-    'runtime.js': 'text/javascript',
-    'style.css': 'text/css',
+    '.html': 'text/html',
+    '.mjs': 'text/javascript',
+    '.js': 'text/javascript',
+    '.css': 'text/css',
   }
 
-  for (const name of Object.keys(types)) {
+  for (const name of ['index.html', 'app.mjs', 'runtime.js', 'style.css']) {
     files.set(
       `/package/${name}`,
       await readFile(
@@ -29,6 +32,10 @@ async function createHost(t, renderWidget) {
         )
       )
     )
+  }
+
+  for (const [name, content] of Object.entries(extraFiles)) {
+    files.set(`/package/${name}`, content)
   }
 
   let origin
@@ -60,7 +67,7 @@ async function createHost(t, renderWidget) {
     const prefix = `${origin}/package/`
 
     response.writeHead(200, {
-      'Content-Type': types[request.url.split('/').at(-1)],
+      'Content-Type': types[path.extname(request.url)],
       'Access-Control-Allow-Origin': '*',
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'no-referrer',
@@ -838,4 +845,163 @@ test('storage failures do not prevent local interaction or standalone previews',
   await page.locator('#action').click()
   await expect(page.locator('#action')).toHaveAttribute('aria-pressed', 'true')
   assert.deepEqual(errors, [])
+})
+
+test('documented config-page examples work with the sandboxed SDK', async (t) => {
+  const example = await configPageExample()
+  const { origin, browser } = await createHost(t, undefined, {
+    'settings/editor.html': example.html,
+    'settings/editor.mjs': example.editorScript,
+    'reader.html': `<!doctype html><h1 id="widget-title">Hello</h1>
+      <p id="settings-status" role="status"></p>
+      <script type="module" src="./reader.mjs"></script>`,
+    'reader.mjs': example.readerScript,
+  })
+  const created = storageEntry('settings', { title: 'First title' })
+  const updated = storageEntry(
+    'settings',
+    { title: 'Updated title' },
+    'revision-2'
+  )
+
+  async function open(t, options, entrypoint = 'settings/editor.html') {
+    const page = await browser.newPage()
+    const errors = []
+    t.after(() => page.close())
+    page.on('pageerror', (error) => errors.push(error.message))
+    page.on('console', (message) => {
+      if (message.type() === 'error') errors.push(message.text())
+    })
+    await page.goto(origin)
+    await installStorageHost(page, options)
+    await page.locator('iframe').evaluate((iframe, url) => {
+      iframe.style.width = '600px'
+      iframe.style.height = '500px'
+      iframe.src = url
+    }, `${origin}/package/${entrypoint}`)
+    return { page, frame: page.frameLocator('iframe'), errors }
+  }
+
+  await t.test(
+    'create, update, and reopen use the saved revision',
+    async (t) => {
+      const { page, frame, errors } = await open(t, {
+        replies: [
+          { result: null },
+          { result: created },
+          { result: updated },
+          { result: updated },
+        ],
+      })
+      await expect(frame.locator('#save')).toBeEnabled()
+      assert.deepEqual(await page.evaluate(() => window.storageRequests), [
+        { method: 'storage.get', params: { key: 'settings' } },
+      ])
+
+      for (const title of ['First title', 'Updated title']) {
+        await frame.locator('#title').fill(title)
+        await frame.locator('#save').click()
+        await expect(frame.locator('#status')).toHaveText('Saved.')
+      }
+      assert.deepEqual(await page.evaluate(() => window.storageRequests), [
+        { method: 'storage.get', params: { key: 'settings' } },
+        {
+          method: 'storage.set',
+          params: { key: 'settings', value: created.value },
+        },
+        {
+          method: 'storage.set',
+          params: {
+            key: 'settings',
+            value: updated.value,
+            expectedRevision: created.revision,
+          },
+        },
+      ])
+
+      await page.locator('iframe').evaluate((iframe) => {
+        iframe.src = iframe.src
+      })
+      await page.waitForFunction(() => window.storageRequests.length === 4)
+      await expect(frame.locator('#title')).toHaveValue('Updated title')
+      await expect(frame.locator('#status')).toHaveText('Ready to edit.')
+      assert.deepEqual(errors, [])
+    }
+  )
+
+  await t.test(
+    'main widget reads settings without writing in public mode',
+    async (t) => {
+      const { page, frame, errors } = await open(
+        t,
+        {
+          mode: 'public',
+          capabilities: ['storage.get'],
+          replies: [{ result: updated }],
+        },
+        'reader.html'
+      )
+      await expect(frame.locator('#widget-title')).toHaveText('Updated title')
+      assert.deepEqual(await page.evaluate(() => window.storageRequests), [
+        { method: 'storage.get', params: { key: 'settings' } },
+      ])
+      assert.deepEqual(errors, [])
+    }
+  )
+
+  for (const [mode, capabilities, status] of [
+    ['public', storageCapabilities, 'Settings are read-only.'],
+    ['editor', ['storage.get'], 'Settings are read-only.'],
+    ['editor', [], 'Saved settings are unavailable.'],
+  ]) {
+    await t.test(
+      `config permissions: ${mode}, ${capabilities.join(',')}`,
+      async (t) => {
+        const { page, frame, errors } = await open(t, {
+          mode,
+          capabilities,
+          replies: [{ result: created }],
+        })
+        await expect(frame.locator('#status')).toHaveText(status)
+        await expect(frame.locator('#save')).toBeDisabled()
+        assert.deepEqual(
+          await page.evaluate(() => window.storageRequests),
+          capabilities.includes('storage.get')
+            ? [{ method: 'storage.get', params: { key: 'settings' } }]
+            : []
+        )
+        assert.deepEqual(errors, [])
+      }
+    )
+  }
+
+  await t.test(
+    'conflicts preserve drafts and stop further saves',
+    async (t) => {
+      const { page, frame, errors } = await open(t, {
+        replies: [
+          { result: created },
+          {
+            error: {
+              code: 'widget_storage_conflict',
+              message: 'Settings changed',
+            },
+          },
+        ],
+      })
+      await expect(frame.locator('#save')).toBeEnabled()
+      await frame.locator('#title').fill('My unsaved draft')
+      await frame.locator('#save').click()
+      await expect(frame.locator('#status')).toContainText(
+        'widget_storage_conflict'
+      )
+      await expect(frame.locator('#save')).toBeDisabled()
+      await expect(frame.locator('#title')).toHaveValue('My unsaved draft')
+      await expect(frame.locator('#title')).toBeEnabled()
+      // Even a synthetic click must not resend the mutation with a stale revision.
+      await frame.locator('#save').dispatchEvent('click')
+      assert.equal(await page.evaluate(() => window.storageRequests.length), 2)
+      assert.deepEqual(errors, [])
+    }
+  )
 })

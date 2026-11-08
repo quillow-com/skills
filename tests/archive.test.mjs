@@ -23,6 +23,67 @@ test('valid package, nested entrypoint, and Unicode name', async () => {
   assert.equal(result.manifest.entrypoint, 'pages/main.html')
 })
 
+for (const editor of [
+  undefined,
+  null,
+  { entrypoint: 'editor.html' },
+  { entrypoint: 'settings/editor.html' },
+  { entrypoint: 'index.html' },
+]) {
+  test(`valid optional editor: ${JSON.stringify(editor)}`, async () => {
+    const result = await validateArchive(
+      archive([
+        ...baseFiles(JSON.stringify({ ...manifest, editor })),
+        { name: 'editor.html', data: '<h1>Settings</h1>' },
+        { name: 'settings/', mode: 0o040755 },
+        { name: 'settings/editor.html', data: '<h1>Nested settings</h1>' },
+      ])
+    )
+    assert.deepEqual(result.manifest.editor, editor)
+  })
+}
+
+for (const editor of [
+  false,
+  true,
+  1,
+  'editor.html',
+  [],
+  {},
+  { entrypoint: null },
+  { entrypoint: 1 },
+  { entrypoint: '' },
+  { entrypoint: 'missing.html' },
+  { entrypoint: 'Editor.html' },
+  { entrypoint: 'directory.html' },
+  { entrypoint: 'app.js' },
+  { entrypoint: 'editor.HTML' },
+  { entrypoint: '../editor.html' },
+  { entrypoint: '/editor.html' },
+  { entrypoint: 'settings\\editor.html' },
+  { entrypoint: 'https://example.com/editor.html' },
+  { entrypoint: 'editor.html?mode=editor' },
+  { entrypoint: 'editor.html#settings' },
+  { entrypoint: '%2e%2e/editor.html' },
+  { entrypoint: 'editor.html', permissions: ['storage'] },
+  { entrypoint: 'editor.html', Entrypoint: 'editor.html' },
+  { Entrypoint: 'editor.html' },
+]) {
+  test(`reject editor: ${JSON.stringify(editor)}`, async () => {
+    await assert.rejects(
+      validateArchive(
+        archive([
+          ...baseFiles(JSON.stringify({ ...manifest, editor })),
+          { name: 'editor.html', data: '<h1>Settings</h1>' },
+          { name: 'directory.html/', mode: 0o040755 },
+          { name: 'app.js', data: 'export {}' },
+        ])
+      ),
+      /editor|package path/
+    )
+  })
+}
+
 for (const name of [
   '../x.js',
   '/x.js',
