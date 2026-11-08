@@ -35,9 +35,12 @@ do not assume a particular editor, terminal tool, installation path, or browser 
    Values must be strings; use explicit serialization for structured settings.
    The bundled SDK 0.4.0 supports strings over the existing v1 protocol. Its broader
    JSON input support is not the platform contract: never pass objects directly.
-   This is shared block data, not private visitor storage. Browser storage, remote
-   APIs, and general Quillow account/page data remain unavailable. Resolve requests
+   This is shared block data, not private visitor storage. Browser storage and
+   general Quillow account/page data remain unavailable. Resolve requests
    for those capabilities with the user; do not invent them or substitute fake data.
+   For external APIs, read [the network guide](references/network.md). Use direct
+   native fetch only to exact HTTPS origins declared in `network.allowedOrigins`;
+   target CORS is required. No proxy, secret keys, or expanded asset permissions.
    For a separate settings/config page, also read [the config-page guide](references/config-page.md).
    Add an optional `editor.entrypoint` to the existing `schemaVersion: 1` manifest;
    do not invent a v2 manifest or a `config` property. Put authoring controls in this
@@ -118,8 +121,10 @@ do not assume a particular editor, terminal tool, installation path, or browser 
   runnable steps instead of a fictitious download link.
 - A valid ZIP does not prove JavaScript behavior or visual quality. Report archive
   validation separately from browser checks.
-- Package scripts and assets locally: no CDN scripts, analytics, remote APIs,
-  secrets, server-side code, or installation steps inside the generated block.
+- Package scripts and assets locally: no CDN scripts, analytics, secrets,
+  server-side code, or installation steps inside the generated block. External API
+  connections require `network.allowedOrigins` and working target CORS; keep the
+  starter network-disabled unless the requested functionality needs an API.
   Host-provided font stylesheets managed by the SDK are the supported external
   font exception; do not add arbitrary remote fonts.
 - Use the SDK for host-backed storage, not fetch/GraphQL, tokens, or a custom

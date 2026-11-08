@@ -278,8 +278,10 @@ belongs to the block and survives code replacement.
 - Check `widget.mode` and each capability, even on the settings page. Public
   connections cannot write. The host/backend enforce authorization; a URL, theme
   attribute, or hidden button does not grant write access.
-- Keep the sandbox/CSP and SDK bridge; do not add direct network calls, an ad-hoc
-  message protocol, a parent-DOM integration, or a custom save/close/publish API.
+- Keep the sandbox/CSP and SDK storage bridge; do not replace storage with direct
+  network calls, an ad-hoc message protocol, a parent-DOM integration, or a custom
+  save/close/publish API. A separate external API feature uses the same version's
+  `network.allowedOrigins` and target CORS; see [the network guide](network.md).
 - Package and validate the whole ZIP with the bundled tools. Test missing/wrong-case
   editor files, nested imports, initial loading, first and repeated saves, closing
   and reopening the modal, and refreshed preview/public reads. Also test absent

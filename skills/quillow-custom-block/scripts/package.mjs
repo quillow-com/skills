@@ -2337,6 +2337,38 @@ var import_yauzl = __toESM(require_yauzl(), 1);
 import { createReadStream } from "node:fs";
 import path from "node:path";
 import { crc32 } from "node:zlib";
+
+// src/network.mjs
+function allowedOrigins(network) {
+  const invalid = () => {
+    throw new Error(
+      "manifest.json: network.allowedOrigins must contain at most 16 exact HTTPS DNS origins"
+    );
+  };
+  if (network == null) return [];
+  if (typeof network !== "object" || Array.isArray(network) || Object.keys(network).some((key) => key !== "allowedOrigins"))
+    invalid();
+  const origins = network.allowedOrigins ?? [];
+  if (!Array.isArray(origins) || origins.length > 16) invalid();
+  const result = /* @__PURE__ */ new Set();
+  for (const origin of origins) {
+    if (typeof origin !== "string" || origin.length > 300) invalid();
+    const match = /^https:\/\/([a-z0-9.-]+)(?::([0-9]{1,5}))?$/i.exec(origin);
+    if (!match || match[0] !== origin) invalid();
+    const host = match[1].toLowerCase();
+    const labels = host.split(".");
+    if (host.length > 253 || labels.length < 2 || host.endsWith(".localhost") || host.endsWith(".local") || labels.some(
+      (label) => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label)
+    ) || !/^[a-z]/.test(labels.at(-1)))
+      invalid();
+    const port = match[2] === void 0 ? 443 : Number(match[2]);
+    if (port < 1 || port > 65535) invalid();
+    result.add(`https://${host}${port === 443 ? "" : `:${port}`}`);
+  }
+  return [...result];
+}
+
+// src/archive-contract.mjs
 var limits = Object.freeze({
   zip: 10 << 20,
   expanded: 30 << 20,
@@ -2401,10 +2433,12 @@ function parseManifest(data) {
     throw new Error(`manifest.json: invalid JSON (${error.message})`);
   }
   if (!manifest || Array.isArray(manifest) || typeof manifest !== "object" || Object.keys(manifest).some(
-    (key) => !["schemaVersion", "name", "entrypoint", "editor"].includes(key)
+    (key) => !["schemaVersion", "name", "entrypoint", "editor", "network"].includes(
+      key
+    )
   ) || manifest.schemaVersion !== 1 || typeof manifest.name !== "string" || !manifest.name.replace(new RegExp("^\\p{White_Space}+|\\p{White_Space}+$", "gu"), "") || [...manifest.name].length > 80 || !manifest.name.isWellFormed() || typeof manifest.entrypoint !== "string") {
     throw new Error(
-      "manifest.json: expected schemaVersion: 1, a nonblank name (1\u201380 Unicode characters), entrypoint, and an optional editor; no other properties"
+      "manifest.json: expected schemaVersion: 1, a nonblank name (1\u201380 Unicode characters), entrypoint, and optional editor/network; no other properties"
     );
   }
   assertPath(manifest.entrypoint);
@@ -2421,6 +2455,10 @@ function parseManifest(data) {
     if (path.posix.extname(manifest.editor.entrypoint) !== ".html") {
       throw new Error("manifest.json: editor.entrypoint must end in .html");
     }
+  }
+  const origins = allowedOrigins(manifest.network);
+  if (manifest.network != null) {
+    manifest.network = { allowedOrigins: origins };
   }
   return manifest;
 }
