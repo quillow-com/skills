@@ -54,8 +54,11 @@ include Custom Code access.
 The runtime supports local interactivity, live theme/layout updates, and optional
 host-backed string storage for the block. Storage requires a compatible host and
 the corresponding capabilities; only editor connections can write. It is not
-private visitor storage. Remote APIs, CDN resources, browser storage, and general
-Quillow account/page data access remain unavailable. See the skill's
+private visitor storage. External APIs are opt-in through exact HTTPS origins in
+`network.allowedOrigins` (manifest v1), using direct fetch with target CORS and no
+proxy. See [the network guide](skills/quillow-custom-block/references/network.md).
+CDN resources, browser storage, and general Quillow account/page data access
+remain unavailable. See the skill's
 [package contract](skills/quillow-custom-block/references/package-contract.md),
 [runtime guide](skills/quillow-custom-block/references/runtime-and-layout.md), and
 [storage guide](skills/quillow-custom-block/references/storage.md).

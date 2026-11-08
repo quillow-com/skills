@@ -36,7 +36,7 @@ no new manifest fields; see [the storage guide](storage.md).
 
 - Exactly `manifest.json` at the ZIP root; at most 16 KiB, valid UTF-8 JSON.
 - Required properties: `schemaVersion`, `name`, and `entrypoint`. Only `editor`
-  may be added; unknown properties at either level are rejected.
+  and `network` may be added; unknown properties at every level are rejected.
 - `schemaVersion`: integer literal `1`.
 - `name`: nonblank after whitespace trimming, at most 80 Unicode characters.
 - `entrypoint`: valid package path ending in lowercase `.html`, identifying a
@@ -46,6 +46,10 @@ no new manifest fields; see [the storage guide](storage.md).
   the same file as the main entrypoint. Omit `editor` when no config page is needed;
   `null` is also accepted and means no config page.
 - No additional JSON value after the manifest. The manifest is not served.
+- `network`: optional object containing only `allowedOrigins`, a list of at most
+  16 exact HTTPS DNS origins. Omitted/null network or an empty/omitted/null list
+  denies connections. See [the network guide](network.md) for origin validation,
+  native fetch/CORS, and security limits. This still uses `schemaVersion: 1`.
 
 ### Optional config page
 
@@ -113,7 +117,7 @@ The output ZIP must be outside the input directory; existing outputs are never
 overwritten. Empty directories are omitted from the ZIP, but the input tree is
 conservatively limited to 100 entries including directories.
 
-`validate.mjs <archive.zip>` checks ZIP metadata, paths, manifest, both entrypoints,
+`validate.mjs <archive.zip>` checks ZIP metadata, paths, manifest/network, both entrypoints,
 actual decompressed bytes and CRC checksums without extracting or executing files.
 Both commands return a nonzero exit code on failure.
 

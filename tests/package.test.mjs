@@ -213,3 +213,35 @@ for (const withEditor of [false, true]) {
     )
   })
 }
+
+test('standalone tools accept network v1 and reject unsafe policy without creating output', async (t) => {
+  const root = await workspace(t)
+  const installed = path.join(root, 'installed skill')
+  await cp(skill, installed, { recursive: true })
+  const pack = path.join(installed, 'scripts', 'package.mjs')
+  const validate = path.join(installed, 'scripts', 'validate.mjs')
+  const filename = path.join(root, 'block', 'manifest.json')
+  const manifest = JSON.parse(await readFile(filename, 'utf8'))
+  manifest.network = {
+    allowedOrigins: ['HTTPS://API.EXAMPLE.COM:443', 'https://api.example.com'],
+  }
+  await writeFile(filename, JSON.stringify(manifest))
+  await run(process.execPath, [pack, './block', './network.zip'], { cwd: root })
+  assert.match(
+    (await run(process.execPath, [validate, './network.zip'], { cwd: root }))
+      .stdout,
+    /Valid package/
+  )
+  assert.deepEqual(
+    (await validateArchive(await readFile(path.join(root, 'network.zip'))))
+      .manifest.network,
+    { allowedOrigins: ['https://api.example.com'] }
+  )
+  manifest.network.allowedOrigins = ['https://example.com; script-src *']
+  await writeFile(filename, JSON.stringify(manifest))
+  await assert.rejects(
+    run(process.execPath, [pack, './block', './unsafe.zip'], { cwd: root }),
+    (error) => error.code === 1 && /network/.test(error.stderr)
+  )
+  await assert.rejects(readFile(path.join(root, 'unsafe.zip')), /ENOENT/)
+})

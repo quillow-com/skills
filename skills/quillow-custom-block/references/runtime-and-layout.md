@@ -14,6 +14,8 @@ visitor's browser, not in Go or the hosting Worker. There is no server build ste
 - An optional config page in `editor.entrypoint`, opened in the editor's settings
   modal. It shares block storage with the main widget but has a separate document
   and connection. See [the config-page guide](config-page.md) for implementation.
+- Direct external API requests to exact HTTPS origins in `network.allowedOrigins`,
+  with target CORS. See [the network guide](network.md); no proxy or new SDK API.
 
 Use `./style.css`, `./app.mjs`, and `./assets/image.webp`, not `/assets/...`.
 References in CSS and module imports are relative to their containing file.
@@ -22,7 +24,7 @@ relative URLs, with no source maps or dependency manifests.
 
 ## Unavailable capabilities
 
-- External scripts, arbitrary external fonts, APIs, fetch/XHR/WebSocket connections, workers,
+- External scripts, arbitrary external fonts, undeclared API connections, workers,
   `eval`/`new Function`, nested frames, form submission, and privileged APIs.
 - Cookies, localStorage, IndexedDB, or other browser storage. The supported
   persistence mechanism is the SDK's host-backed block storage, not visitor storage.
@@ -30,8 +32,9 @@ relative URLs, with no source maps or dependency manifests.
 
 Use ordinary inputs/buttons and event listeners for local interaction, not a
 submitted form. In-memory state resets on reload; explicitly saved block data does
-not. Do not use network requests even to load local JSON: `connect-src 'none'`
-blocks them. Use a JS module instead.
+not. Local fetch is not implicitly allowed by the external API policy. Embed local
+data in a JS module instead of fetching local JSON. With no declared origins,
+`connect-src 'none'` blocks every connection.
 
 ## SDK bridge
 
@@ -96,8 +99,9 @@ storage's `mode: 'public'`; they are different field names and values. Theme
 readiness does not establish a storage connection, and `connect()` applies no
 theme styles. `Quillow.destroy()` and `widget.destroy()` dispose separate bridges.
 
-Storage uses a host-provided `MessagePort`, not fetch/XHR. Keep `connect-src 'none'`
-and the existing sandbox; do not enable network access or `allow-same-origin`.
+Storage uses a host-provided `MessagePort`, not fetch/XHR, and needs no network
+permission. Keep `connect-src 'none'` unless a separate external API feature needs
+declared origins. Do not relax the existing sandbox or add `allow-same-origin`.
 A theme-only host can still update theme/layout while storage connections time out.
 Keep the local UI usable and show an honest unavailable/read-only state as needed.
 
@@ -202,6 +206,10 @@ frame-ancestors https: http://localhost:* http://127.0.0.1:*
 Serve correct MIME types and `Access-Control-Allow-Origin: *` for module/font
 requests from the sandbox's opaque origin. Include `X-Content-Type-Options:
 nosniff` and `Referrer-Policy: no-referrer`.
+
+For a network-enabled manifest, replace only `connect-src 'none'` with its
+normalized origins; see [network verification](network.md#security-and-verification).
+The default starter remains network-disabled. Do not loosen other directives.
 
 Exercise the main interaction, invalid/empty values, keyboard focus, and exactly
 156 × 156, 336 × 156, and 336 × 336. Check console errors, missing assets, CSP
