@@ -1,6 +1,6 @@
 ---
 name: quillow-custom-block
-description: Create or edit a responsive Quillow Custom Code block and deliver a validated, upload-ready ZIP with manifest.json. Use for custom Quillow widgets, interactive blocks, calculators, host-backed block storage, or changes to existing block packages.
+description: Create or edit a responsive Quillow Custom Code block and deliver a validated, upload-ready ZIP with manifest.json. Use for custom Quillow widgets, interactive blocks, calculators, config pages, host-backed block storage, or changes to existing block packages.
 compatibility: Requires Node.js 22.20+ and an agent able to create files and run commands. Browser testing is optional and requires browser tools.
 ---
 
@@ -35,6 +35,11 @@ do not assume a particular editor, terminal tool, installation path, or browser 
    This is shared block data, not private visitor storage. Browser storage, remote
    APIs, and general Quillow account/page data remain unavailable. Resolve requests
    for those capabilities with the user; do not invent them or substitute fake data.
+   For a separate settings/config page, also read [the config-page guide](references/config-page.md).
+   Add an optional `editor.entrypoint` to the existing `schemaVersion: 1` manifest;
+   do not invent a v2 manifest or a `config` property. Put authoring controls in this
+   page when requested: the editor's grid preview does not receive pointer events.
+   The page and main block share storage, not JavaScript state or a live subscription.
 5. Find the installed directory containing this `SKILL.md`; call its absolute
    path `SKILL_DIR`. Check `node --version` (22.20+). Scripts and references are
    relative to this directory, not to the user's working directory. No package
@@ -78,6 +83,8 @@ do not assume a particular editor, terminal tool, installation path, or browser 
    live theme/font/layout changes without losing state, and the main interaction.
    If storage is used, also test public read-only behavior, missing capabilities,
    absent/legacy hosts, revision conflicts, and uncertain writes without retries.
+   If a config page is included, test loading/saving in its modal, reopening it,
+   and reading the saved data in the refreshed preview and published block.
    Plain `file://` or an unsandboxed tab is not a runtime
    compatibility check. Fix clipping, overlap, accidental scrolling, tiny targets,
    and unreadable text rather than reporting them as expected limitations. If no
@@ -115,6 +122,10 @@ do not assume a particular editor, terminal tool, installation path, or browser 
 - Use the SDK for host-backed storage, not fetch/GraphQL, tokens, or a custom
   message protocol. Never store secrets in block data. Do not automatically retry
   mutations, overwrite conflicts, or treat a timed-out write as a confirmed failure.
+- Config pages are optional and use the same package limits. Package the editor
+  HTML and its local resources; use the SDK and revision-aware storage for settings.
+  An editor file is publicly addressable, not an authentication boundary. Keep
+  secrets out of both files and storage; enforce writes through mode/capabilities.
 - For navigation in the main tab, use an absolute URL and `target="_top"` on
   links. For buttons, assign `window.top.location.href` to an absolute URL
   directly in the click handler. An ordinary link navigates inside the iframe;

@@ -11,6 +11,9 @@ visitor's browser, not in Go or the hosting Worker. There is no server build ste
 - Host-backed JSON storage through the SDK, when the host supports it and grants
   the matching capabilities. Public connections can read; writes require editor
   mode. See [the storage guide](storage.md) before implementing persistence.
+- An optional config page in `editor.entrypoint`, opened in the editor's settings
+  modal. It shares block storage with the main widget but has a separate document
+  and connection. See [the config-page guide](config-page.md) for implementation.
 
 Use `./style.css`, `./app.mjs`, and `./assets/image.webp`, not `/assets/...`.
 References in CSS and module imports are relative to their containing file.

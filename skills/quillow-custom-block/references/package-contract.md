@@ -1,8 +1,10 @@
 # Quillow package contract v1
 
-Checked against `quillow-apis` on 2026-10-26:
-`apps/api/internal/services/widget_packages/archive.go`, its tests, and
-`apps/widget-host/README.md`. The backend remains the authority.
+Manifest checked against `quillow-apis` on 2026-11-08:
+`apps/api/internal/entities/widget_package/package.go` and
+`apps/api/internal/services/widget_packages/archive.go`, including its editor
+entrypoint tests. Static hosting lives in `quillow-widget-host`. The backend
+remains the authority.
 
 ```text
 block.zip
@@ -33,12 +35,40 @@ no new manifest fields; see [the storage guide](storage.md).
 ## Manifest
 
 - Exactly `manifest.json` at the ZIP root; at most 16 KiB, valid UTF-8 JSON.
-- Use exactly the three property names above, with no extra properties.
+- Required properties: `schemaVersion`, `name`, and `entrypoint`. Only `editor`
+  may be added; unknown properties at either level are rejected.
 - `schemaVersion`: integer literal `1`.
 - `name`: nonblank after whitespace trimming, at most 80 Unicode characters.
 - `entrypoint`: valid package path ending in lowercase `.html`, identifying a
   file that exists with exactly the same case. Nested entrypoints are allowed.
+- `editor`: optional object containing only `entrypoint`, a valid package path to
+  an existing lowercase `.html` file with matching case. It may be nested or use
+  the same file as the main entrypoint. Omit `editor` when no config page is needed;
+  `null` is also accepted and means no config page.
 - No additional JSON value after the manifest. The manifest is not served.
+
+### Optional config page
+
+The extended manifest still uses **`schemaVersion: 1`**, not `2`. Existing
+three-property manifests remain valid. For a separate settings screen:
+
+```json
+{
+  "schemaVersion": 1,
+  "name": "Consultation calculator",
+  "entrypoint": "index.html",
+  "editor": {
+    "entrypoint": "settings/editor.html"
+  }
+}
+```
+
+Include `settings/editor.html` and its scripts/styles in the same ZIP. Paths are
+relative to the package root, not to the main HTML file, and cannot be external
+URLs or contain a query/fragment. These files share the normal archive limits.
+See [the config-page guide](config-page.md) for the UI flow, relative imports,
+storage example, and security restrictions. No manifest permissions are needed
+for storage, and the config page is not a private file.
 
 The local tools enforce this canonical form. They can be stricter than incidental
 Go JSON-decoder behavior (for example, case-insensitive keys or replacement of
@@ -83,7 +113,7 @@ The output ZIP must be outside the input directory; existing outputs are never
 overwritten. Empty directories are omitted from the ZIP, but the input tree is
 conservatively limited to 100 entries including directories.
 
-`validate.mjs <archive.zip>` checks ZIP metadata, paths, manifest, entrypoint,
+`validate.mjs <archive.zip>` checks ZIP metadata, paths, manifest, both entrypoints,
 actual decompressed bytes and CRC checksums without extracting or executing files.
 Both commands return a nonzero exit code on failure.
 
