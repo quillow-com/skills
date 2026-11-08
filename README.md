@@ -29,16 +29,31 @@ For revisions:
 > Update my existing Quillow block: change the accent color and add a 90-minute
 > option. Preserve the existing functionality and generate a new ZIP.
 
+For persistent block content:
+
+> Create a price list block. Let me edit and save its items in the Quillow editor
+> using block storage. Published visitors should only read the saved items.
+
 The agent keeps editable files, validates the resulting ZIP, and provides a file
 path or downloadable artifact depending on its environment. Select that ZIP in
 your Quillow Custom Code block's upload control. Quillow validates and applies
 uploads automatically; no separate publish step is required. Your plan must
 include Custom Code access.
 
-The runtime supports local interactivity, not remote APIs, CDN resources,
-persistent storage, or Quillow data access. See the skill's
-[package contract](skills/quillow-custom-block/references/package-contract.md) and
-[runtime guide](skills/quillow-custom-block/references/runtime-and-layout.md).
+The runtime supports local interactivity, live theme/layout updates, and optional
+host-backed JSON storage for the block. Storage requires a compatible host and
+the corresponding capabilities; only editor connections can write. It is not
+private visitor storage. Remote APIs, CDN resources, browser storage, and general
+Quillow account/page data access remain unavailable. See the skill's
+[package contract](skills/quillow-custom-block/references/package-contract.md),
+[runtime guide](skills/quillow-custom-block/references/runtime-and-layout.md), and
+[storage guide](skills/quillow-custom-block/references/storage.md).
+
+The starter includes SDK **0.4.0** as a local ESM module, `runtime.js`. Import
+`Quillow`, `connect`, and `WidgetSDKError` from that file as needed; do not load it
+as a classic script or expect `window.Quillow`. The starter starts the theme/layout
+bridge in `app.mjs` and keeps its example interaction local. Connect to storage
+only when the block needs persistent data.
 
 ## Run the tools directly
 
@@ -64,9 +79,11 @@ npm run check
 
 Edit `src/` and rebuild; commit the generated `skills/quillow-custom-block/scripts/`
 and `THIRD_PARTY_NOTICES` with source changes. The build also copies the pinned
-`@quillow/custom-block-sdk` runtime into `templates/starter/runtime.js`, embeds
-its MIT license, and removes the source map reference. Commit that generated file
-when updating the SDK dependency and lockfile. `check:build` detects stale bundles.
+`@quillow/custom-block-sdk` ESM bundle (`dist/index.js`) into
+`templates/starter/runtime.js`, embeds its MIT license, and removes the source map
+reference. This is not the package's theme-only standalone `dist/runtime.js`.
+Commit that generated file when updating the SDK dependency and lockfile.
+`check:build` detects stale bundles.
 Prettier formats source, documentation, and templates using `.prettierrc.json`,
 including import sorting. Generated bundles are excluded. Run `npm run format`
 before rebuilding; `npm run format:check` verifies formatting without modifying
@@ -80,10 +97,11 @@ npm run test:browser
 ```
 
 The browser test uses a local HTTP host with the sandbox/CSP/CORS contract from
-Quillow, plus a parent bridge fixture for live theme, font stylesheet, and layout
-updates. Font stylesheet responses are mocked for deterministic offline testing;
-this does not verify Google Fonts delivery in production. CI runs this test along
-with archive tests and bundle checks.
+Quillow, plus parent bridge fixtures for live theme, font stylesheet, layout
+updates, and storage connections. Storage tests use a scripted host fixture,
+not the production backend. Font stylesheet responses are mocked for deterministic
+offline testing; this does not verify Google Fonts delivery in production. CI runs
+these tests along with archive tests and bundle checks.
 
 ### Contract maintenance
 

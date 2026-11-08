@@ -54,9 +54,10 @@ const sdkLicense = await readFile(path.join(sdkDirectory, 'LICENSE'), 'utf8')
 await emit(
   `${output}/templates/starter/runtime.js`,
   `/*! ${sdk}\n${sdkLicense}*/\n` +
-    (
-      await readFile(path.join(sdkDirectory, 'dist/runtime.js'), 'utf8')
-    ).replace(/^\/\/# sourceMappingURL=.*\r?\n?/gm, '')
+    (await readFile(path.join(sdkDirectory, 'dist/index.js'), 'utf8')).replace(
+      /^\/\/# sourceMappingURL=.*\r?\n?/gm,
+      ''
+    )
 )
 packages.add(sdk)
 

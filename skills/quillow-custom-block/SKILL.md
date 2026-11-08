@@ -1,6 +1,6 @@
 ---
 name: quillow-custom-block
-description: Create or edit a responsive Quillow Custom Code block and deliver a validated, upload-ready ZIP with manifest.json. Use for custom Quillow widgets, local interactive blocks, calculators, or changes to existing block packages.
+description: Create or edit a responsive Quillow Custom Code block and deliver a validated, upload-ready ZIP with manifest.json. Use for custom Quillow widgets, interactive blocks, calculators, host-backed block storage, or changes to existing block packages.
 compatibility: Requires Node.js 22.20+ and an agent able to create files and run commands. Browser testing is optional and requires browser tools.
 ---
 
@@ -29,9 +29,12 @@ do not assume a particular editor, terminal tool, installation path, or browser 
    style request or copied creative prompt overrides the default; preserve its
    concept while improving fit, accessibility, and reliability.
 4. The bundled SDK supplies live theme, layout, and editor/published context.
-   Resolve requests for remote APIs, persistent state, or Quillow account/page
-   data with the user before coding: those capabilities remain unavailable.
-   Do not invent them or silently substitute fake data.
+   For persistent block data, read [the storage guide](references/storage.md).
+   `connect()` provides host-backed JSON storage when the host supports it:
+   check each capability, write only in editor mode, and preserve revision tokens.
+   This is shared block data, not private visitor storage. Browser storage, remote
+   APIs, and general Quillow account/page data remain unavailable. Resolve requests
+   for those capabilities with the user; do not invent them or substitute fake data.
 5. Find the installed directory containing this `SKILL.md`; call its absolute
    path `SKILL_DIR`. Check `node --version` (22.20+). Scripts and references are
    relative to this directory, not to the user's working directory. No package
@@ -41,9 +44,11 @@ do not assume a particular editor, terminal tool, installation path, or browser 
    template. Prefer plain HTML/CSS/JS. Keep source/build tooling outside the
    directory that will be packaged. Replace all starter content and give the
    manifest a descriptive name.
-   Keep the local `runtime.js` script before author scripts. It supplies
-   `window.Quillow` and auto-starts inside an iframe. Do not load a second
-   bundled ESM SDK instance alongside it.
+   Keep the local `runtime.js` ESM bundle. Import `Quillow`, `connect`, and
+   `WidgetSDKError` from `./runtime.js` as needed. Preserve the starter's guarded
+   `Quillow.start()` call for theme/layout. Do not load this file as a classic
+   script, expect `window.Quillow`, or add a second SDK instance. For older blocks,
+   inspect their existing runtime/loading pattern before migrating to ESM.
 7. For an existing block, inspect the files before editing and preserve unrelated
    behavior and user content. If only a ZIP was supplied, validate it first with
    `validate.mjs`, then use an available archive tool to extract it into a fresh
@@ -71,6 +76,8 @@ do not assume a particular editor, terminal tool, installation path, or browser 
    a sandboxed iframe with the documented CSP and CORS headers. Test all three
    exact viewports, keyboard interaction, touch/pointer behavior, reduced motion,
    live theme/font/layout changes without losing state, and the main interaction.
+   If storage is used, also test public read-only behavior, missing capabilities,
+   absent/legacy hosts, revision conflicts, and uncertain writes without retries.
    Plain `file://` or an unsandboxed tab is not a runtime
    compatibility check. Fix clipping, overlap, accidental scrolling, tiny targets,
    and unreadable text rather than reporting them as expected limitations. If no
@@ -105,6 +112,9 @@ do not assume a particular editor, terminal tool, installation path, or browser 
   secrets, server-side code, or installation steps inside the generated block.
   Host-provided font stylesheets managed by the SDK are the supported external
   font exception; do not add arbitrary remote fonts.
+- Use the SDK for host-backed storage, not fetch/GraphQL, tokens, or a custom
+  message protocol. Never store secrets in block data. Do not automatically retry
+  mutations, overwrite conflicts, or treat a timed-out write as a confirmed failure.
 - For navigation in the main tab, use an absolute URL and `target="_top"` on
   links. For buttons, assign `window.top.location.href` to an absolute URL
   directly in the click handler. An ordinary link navigates inside the iframe;

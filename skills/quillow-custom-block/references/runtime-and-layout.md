@@ -8,6 +8,9 @@ visitor's browser, not in Go or the hosting Worker. There is no server build ste
 - Local DOM interaction, calculations, tabs, counters, and in-memory state.
 - Relative scripts, ES modules, styles, images, and fonts from the package.
 - Static data embedded in HTML or JavaScript.
+- Host-backed JSON storage through the SDK, when the host supports it and grants
+  the matching capabilities. Public connections can read; writes require editor
+  mode. See [the storage guide](storage.md) before implementing persistence.
 
 Use `./style.css`, `./app.mjs`, and `./assets/image.webp`, not `/assets/...`.
 References in CSS and module imports are relative to their containing file.
@@ -18,18 +21,41 @@ relative URLs, with no source maps or dependency manifests.
 
 - External scripts, arbitrary external fonts, APIs, fetch/XHR/WebSocket connections, workers,
   `eval`/`new Function`, nested frames, form submission, and privileged APIs.
-- Cookies, localStorage, IndexedDB, or other persistent storage.
+- Cookies, localStorage, IndexedDB, or other browser storage. The supported
+  persistence mechanism is the SDK's host-backed block storage, not visitor storage.
 - Quillow account/page data, automatic iframe resizing, or a manifest height property.
 
 Use ordinary inputs/buttons and event listeners for local interaction, not a
-submitted form. State resets on reload. Do not use network requests even to load
-local JSON: `connect-src 'none'` blocks them. Use a JS module instead.
+submitted form. In-memory state resets on reload; explicitly saved block data does
+not. Do not use network requests even to load local JSON: `connect-src 'none'`
+blocks them. Use a JS module instead.
 
 ## SDK bridge
 
-The starter includes a pinned `@quillow/custom-block-sdk` standalone runtime as
-`./runtime.js`, loaded before author scripts. It auto-starts inside an iframe and
-exposes `window.Quillow`. Do not also bundle the ESM SDK into that document.
+The starter includes `@quillow/custom-block-sdk` **0.4.0** as a local ESM bundle,
+`./runtime.js`. Its `app.mjs` imports the SDK and starts the theme/layout bridge:
+
+```js
+import { Quillow } from './runtime.js'
+
+if (window.parent !== window) Quillow.start()
+```
+
+The HTML loads only the author module:
+
+```html
+<script
+  type="module"
+  src="./app.mjs"
+></script>
+```
+
+Importing the SDK alone has no DOM side effects. This starter's `runtime.js` is
+copied from the package's `dist/index.js`, not its standalone `dist/runtime.js`.
+It does not auto-start or set `window.Quillow`. Do not load it as a classic script
+or combine it with another SDK bundle. The default interaction is local; import
+`connect` and `WidgetSDKError` from the same module only when storage is needed.
+
 The host supplies live context without reloading the block:
 
 - `theme`: mode, corner style, resolved CSS variables, and font stylesheet.
@@ -53,6 +79,28 @@ than implementing a separate message protocol.
 The SDK manages the host-provided font stylesheet, replacing/removing it on theme
 changes. Google Fonts requires CSP allowances for its stylesheet and font origins.
 This does not enable arbitrary network requests.
+
+### Storage is a separate connection
+
+`connect()` returns block identity, `mode` (`editor` or `public`), capabilities, and
+`widget.storage`. The theme context's `environment: 'published'` corresponds to
+storage's `mode: 'public'`; they are different field names and values. Theme
+readiness does not establish a storage connection, and `connect()` applies no
+theme styles. `Quillow.destroy()` and `widget.destroy()` dispose separate bridges.
+
+Storage uses a host-provided `MessagePort`, not fetch/XHR. Keep `connect-src 'none'`
+and the existing sandbox; do not enable network access or `allow-same-origin`.
+A theme-only host can still update theme/layout while storage connections time out.
+Keep the local UI usable and show an honest unavailable/read-only state as needed.
+
+### Migrating an older block
+
+Older ZIPs may use a classic `runtime.js` that auto-starts and exposes
+`window.Quillow`. Do not simply replace that file with the ESM bundle. Remove its
+classic script tag, import `Quillow` in the author module, and add the guarded
+startup shown above. Replace global SDK references with imports. Keep one active
+theme bridge, preserve existing behavior, and test the revised ZIP. Existing ZIPs
+are not upgraded automatically.
 
 ## Navigation
 
@@ -154,3 +202,12 @@ unsandboxed page does not reproduce this runtime.
 If the widget includes navigation, verify that a click on its link or button
 changes the main page. Keep top navigation restricted to user activation in both
 the iframe sandbox and CSP; do not add `allow-top-navigation` or `allow-popups`.
+
+For storage, add a parent fixture implementing the SDK's
+[KV bridge contract](https://github.com/quillow-com/custom-block-sdk/blob/v0.4.0/PROTOCOL.md).
+Transfer a `MessagePort` into the sandboxed iframe; its opaque origin requires
+`'*'` as the host's target origin, while the widget still validates the parent
+window and HTTP(S) origin. Do not relax sandbox/CSP to make a test pass. Test editor
+writes, public read-only mode, missing capabilities, pagination, conflicts,
+timeouts, uncertain mutations, and disposal. A fixture is not proof of production
+host/backend support.
