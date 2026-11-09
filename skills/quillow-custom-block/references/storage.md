@@ -14,7 +14,7 @@ there is no cross-session subscription.
 ## SDK compatibility
 
 String storage, theme/layout and widget manifest `schemaVersion` all use **v1**.
-The starter bundles the released SDK **0.5.0**, which enforces string-only storage
+The starter bundles the released SDK **0.6.0**, which enforces string-only storage
 in its TypeScript types and runtime validation. Non-string values, zero bytes,
 and lone surrogates are rejected locally with `INVALID_ARGUMENT` before a write
 is sent. Empty strings are valid. There is no automatic conversion: serialize
@@ -22,7 +22,7 @@ structured settings explicitly and validate parsed data after reading.
 
 Existing SDK 0.4.0 widgets can still exchange strings over the same protocol, but
 their broader JSON input support does not change the host/API's string-only
-contract. New ZIPs should use the bundled 0.5.0 runtime. Already uploaded ZIPs are
+contract. New ZIPs should use the bundled 0.6.0 runtime. Already uploaded ZIPs are
 not upgraded automatically. Local browser tests can also use a built SDK through
 `QUILLOW_SDK_TEST_ENTRY`.
 
@@ -238,7 +238,10 @@ It does **not** cancel or roll back a mutation already sent to the host.
 The SDK closes sessions on host disconnect, document `pagehide`, invalid protocol
 messages, decode failures, or missed heartbeats. Heartbeats pause while hidden.
 There is no automatic reconnect or request replay. The host must terminate a
-session when its block identity, version, mode, or capabilities change.
+session when its block identity, version, mode, or capabilities change. Hosts with
+the optional editor-opening extension also revoke on editor availability changes;
+see [SDK editor opening](config-page.md#open-the-editor-through-the-sdk). Opening
+uses the same connection, but is not a storage mutation or a new storage permission.
 
 Storage is independent of `Quillow.start()` / `ready()` / `subscribe()`: connecting
 does not apply theme styles, and destroying either bridge does not destroy the

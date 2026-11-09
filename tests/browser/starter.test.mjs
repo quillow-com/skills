@@ -131,10 +131,15 @@ function storageEntry(key, value, revision = 'revision-1') {
 // this fixture does not implement or verify the production KV backend.
 async function installStorageHost(
   page,
-  { mode = 'editor', capabilities = storageCapabilities, replies = [] } = {}
+  {
+    mode = 'editor',
+    capabilities = storageCapabilities,
+    editor,
+    replies = [],
+  } = {}
 ) {
   await page.evaluate(
-    ({ mode, capabilities, replies, storageVersion }) => {
+    ({ mode, capabilities, editor, replies, storageVersion }) => {
       window.storageRequests = []
       const sessions = new Set()
       window.addEventListener('message', (event) => {
@@ -198,6 +203,7 @@ async function installStorageHost(
               versionId: 'version-1',
               mode,
               capabilities,
+              ...(editor !== undefined ? { editor } : {}),
             },
           },
           '*',
@@ -205,7 +211,7 @@ async function installStorageHost(
         )
       })
     },
-    { mode, capabilities, replies, storageVersion }
+    { mode, capabilities, editor, replies, storageVersion }
   )
 }
 
@@ -950,6 +956,161 @@ test('storage failures do not prevent local interaction or standalone previews',
   await page.locator('#action').click()
   await expect(page.locator('#action')).toHaveAttribute('aria-pressed', 'true')
   assert.deepEqual(errors, [])
+})
+
+test('documented editor opener handles legacy runtimes and optional v1 UI support', async (t) => {
+  const example = await configPageExample()
+  const { origin, browser } = await createHost(t, undefined, {
+    'open-editor.mjs': example.openerScript,
+  })
+
+  async function run(t, options = {}, action = {}) {
+    const page = await browser.newPage()
+    const errors = []
+    t.after(() => page.close())
+    page.on('pageerror', (error) => errors.push(error.message))
+    await page.goto(origin)
+    await installStorageHost(page, {
+      capabilities: ['editor.open'],
+      editor: { available: true },
+      ...options,
+    })
+    const frame = page.frame({ url: `${origin}/package/index.html` })
+    const result = await frame.evaluate(
+      async ({ legacy, destroy, repeat = 1 }) => {
+        const { connect } = await import('./runtime.js')
+        const { openBlockEditor } = await import('./open-editor.mjs')
+        const widget = await connect({ timeout: 500, requestTimeout: 100 })
+        try {
+          const supported = typeof widget.openEditor === 'function'
+          if (destroy) widget.destroy()
+          const target = legacy ? { ...widget, openEditor: undefined } : widget
+          const messages = []
+          for (let i = 0; i < repeat; i++) {
+            messages.push(await openBlockEditor(target))
+          }
+          return { supported, messages }
+        } finally {
+          widget.destroy()
+        }
+      },
+      action
+    )
+    assert.deepEqual(errors, [])
+    return {
+      ...result,
+      requests: await page.evaluate(() => window.storageRequests),
+    }
+  }
+
+  await t.test(
+    'a runtime without the method falls back to the host gear',
+    async (t) => {
+      const result = await run(t, {}, { legacy: true })
+      assert.deepEqual(result.messages, [
+        'Use the Custom Block settings gear in Quillow; this SDK cannot open it programmatically.',
+      ])
+      assert.deepEqual(result.requests, [])
+    }
+  )
+
+  await t.test(
+    'public mode never attempts opening, even with a claimed capability',
+    async (t) => {
+      const result = await run(t, { mode: 'public' })
+      assert.deepEqual(result.messages, [
+        'Block settings can only be opened in the Quillow editor.',
+      ])
+      assert.deepEqual(result.requests, [])
+    }
+  )
+
+  const scenarios = [
+    {
+      name: 'accepted opening and repeated calls use empty parameters',
+      options: { replies: [{ result: true }, { result: true }] },
+      action: { repeat: 2 },
+      messages: ['Editor opening accepted.', 'Editor opening accepted.'],
+      requests: 2,
+    },
+    {
+      name: 'an explicitly absent screen is distinct from missing permission',
+      options: { capabilities: [], editor: { available: false } },
+      messages: ['This block has no available editor screen.'],
+      requests: 0,
+    },
+    {
+      name: 'an available screen without permission does not send a request',
+      options: { capabilities: [] },
+      messages: ['This host has not permitted opening the block editor.'],
+      requests: 0,
+    },
+    {
+      name: 'legacy host metadata does not imply an absent manifest editor',
+      options: { capabilities: [], editor: undefined },
+      messages: ['This host has not permitted opening the block editor.'],
+      requests: 0,
+    },
+    {
+      name: 'a definite host rejection reports the missing editor',
+      options: {
+        replies: [
+          { error: { code: 'EDITOR_UNAVAILABLE', message: 'Unavailable' } },
+        ],
+      },
+      messages: ['This block has no available editor screen.'],
+      requests: 1,
+    },
+    {
+      name: 'a host permission rejection is not reported as a missing screen',
+      options: {
+        replies: [
+          { error: { code: 'PERMISSION_DENIED', message: 'Not permitted' } },
+        ],
+      },
+      messages: ['This host has not permitted opening the block editor.'],
+      requests: 1,
+    },
+    {
+      name: 'a timeout is not retried or described as confirmed failure',
+      options: { replies: [{ drop: true }] },
+      messages: [
+        'The editor may have opened. Check Quillow before trying again.',
+      ],
+      requests: 1,
+    },
+    {
+      name: 'an invalid confirmation is not accepted as success',
+      options: { replies: [{ result: false }] },
+      messages: ['Unable to open the block editor (PROTOCOL_ERROR).'],
+      requests: 1,
+    },
+    {
+      name: 'a destroyed connection is not silently reused',
+      action: { destroy: true },
+      messages: ['Unable to open the block editor (DESTROYED).'],
+      requests: 0,
+    },
+  ]
+
+  for (const scenario of scenarios) {
+    await t.test(scenario.name, async (t) => {
+      const result = await run(t, scenario.options, scenario.action)
+      assert.equal(
+        result.supported,
+        true,
+        'The bundled SDK must implement openEditor()'
+      )
+      assert.deepEqual(result.messages, scenario.messages)
+      assert.deepEqual(
+        result.requests,
+        Array.from({ length: scenario.requests }, () => ({
+          method: 'editor.open',
+          params: {},
+        }))
+      )
+    })
+  }
 })
 
 test('documented config-page examples work with the sandboxed SDK', async (t) => {
