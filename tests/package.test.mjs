@@ -14,11 +14,26 @@ import path from 'node:path'
 import test from 'node:test'
 import { promisify } from 'node:util'
 
+import { configPageExample } from './fixtures.mjs'
+
 import { validateArchive } from '../src/archive-contract.mjs'
 import { packageDirectory } from '../src/package-core.mjs'
 
 const run = promisify(execFile)
 const skill = new URL('../skills/quillow-custom-block/', import.meta.url)
+
+test('starter ships an SSR-safe local ESM SDK with storage exports', async () => {
+  const runtime = new URL('templates/starter/runtime.js', skill)
+  const { connect, Quillow, WidgetSDKError } = await import(runtime.href)
+
+  assert.equal(typeof connect, 'function')
+  assert.equal(typeof WidgetSDKError, 'function')
+  assert.equal(Quillow.getContext(), undefined)
+  await assert.rejects(connect(), (error) => {
+    return error instanceof WidgetSDKError && error.code === 'HOST_UNAVAILABLE'
+  })
+  assert.doesNotMatch(await readFile(runtime, 'utf8'), /sourceMappingURL=/)
+})
 
 async function workspace(t) {
   const root = await mkdtemp(path.join(tmpdir(), 'quillow-skills-'))
@@ -29,6 +44,18 @@ async function workspace(t) {
   })
 
   return root
+}
+
+async function addConfigPage(root) {
+  const { manifest, html, editorScript } = await configPageExample()
+  const block = path.join(root, 'block')
+
+  await writeFile(path.join(block, 'manifest.json'), JSON.stringify(manifest))
+  await mkdir(path.join(block, 'settings'))
+  await writeFile(path.join(block, 'settings/editor.html'), html)
+  await writeFile(path.join(block, 'settings/editor.mjs'), editorScript)
+
+  return manifest
 }
 
 test('package starter, preserve root layout, and refuse overwrite', async (t) => {
@@ -49,6 +76,45 @@ test('package starter, preserve root layout, and refuse overwrite', async (t) =>
   )
   assert.deepEqual(await readFile(output), original)
 })
+
+test('package the documented config page with nested local resources', async (t) => {
+  const root = await workspace(t)
+  const manifest = await addConfigPage(root)
+  const output = path.join(root, 'widget.zip')
+
+  await packageDirectory(path.join(root, 'block'), output)
+
+  const result = await validateArchive(await readFile(output))
+
+  assert.deepEqual(result.manifest, manifest)
+  assert.deepEqual(result.files.sort(), [
+    'app.mjs',
+    'index.html',
+    'runtime.js',
+    'settings/editor.html',
+    'settings/editor.mjs',
+    'style.css',
+  ])
+})
+
+for (const entrypoint of ['settings/missing.html', 'Settings/editor.html']) {
+  test(`invalid editor does not create an output: ${entrypoint}`, async (t) => {
+    const root = await workspace(t)
+    const manifest = await addConfigPage(root)
+    const output = path.join(root, 'widget.zip')
+
+    manifest.editor.entrypoint = entrypoint
+    await writeFile(
+      path.join(root, 'block', 'manifest.json'),
+      JSON.stringify(manifest)
+    )
+    await assert.rejects(
+      packageDirectory(path.join(root, 'block'), output),
+      /editor entrypoint does not exist/
+    )
+    await assert.rejects(readFile(output), /ENOENT/)
+  })
+}
 
 test('skip .DS_Store at every depth without deleting or counting it', async (t) => {
   const root = await workspace(t)
@@ -113,33 +179,69 @@ test('invalid manifest does not create an output', async (t) => {
   await assert.rejects(readFile(path.join(root, 'widget.zip')), /ENOENT/)
 })
 
-test('installed standalone bundles run without node_modules and handle CLI errors', async (t) => {
+for (const withEditor of [false, true]) {
+  test(`installed standalone bundles run without node_modules (${withEditor ? 'with' : 'without'} config page) and handle CLI errors`, async (t) => {
+    const root = await workspace(t)
+    const installed = path.join(root, 'installed skill')
+
+    if (withEditor) await addConfigPage(root)
+
+    await cp(skill, installed, { recursive: true })
+
+    const pack = path.join(installed, 'scripts', 'package.mjs')
+    const validate = path.join(installed, 'scripts', 'validate.mjs')
+
+    const result = await run(
+      process.execPath,
+      [pack, './block', './output.zip'],
+      { cwd: root }
+    )
+    assert.match(result.stdout, /Created and validated/)
+    assert.match(
+      (await run(process.execPath, [validate, './output.zip'], { cwd: root }))
+        .stdout,
+      /Valid package/
+    )
+    await assert.rejects(
+      run(process.execPath, [validate], { cwd: root }),
+      (error) => error.code === 1 && /Usage/.test(error.stderr)
+    )
+    await writeFile(path.join(root, 'bad.zip'), 'bad')
+    await assert.rejects(
+      run(process.execPath, [validate, './bad.zip'], { cwd: root }),
+      (error) => error.code === 1 && /Validation failed/.test(error.stderr)
+    )
+  })
+}
+
+test('standalone tools accept network v1 and reject unsafe policy without creating output', async (t) => {
   const root = await workspace(t)
   const installed = path.join(root, 'installed skill')
-
   await cp(skill, installed, { recursive: true })
-
   const pack = path.join(installed, 'scripts', 'package.mjs')
   const validate = path.join(installed, 'scripts', 'validate.mjs')
-
-  const result = await run(
-    process.execPath,
-    [pack, './block', './output.zip'],
-    { cwd: root }
-  )
-  assert.match(result.stdout, /Created and validated/)
+  const filename = path.join(root, 'block', 'manifest.json')
+  const manifest = JSON.parse(await readFile(filename, 'utf8'))
+  manifest.network = {
+    allowedOrigins: ['HTTPS://API.EXAMPLE.COM:443', 'https://api.example.com'],
+  }
+  await writeFile(filename, JSON.stringify(manifest))
+  await run(process.execPath, [pack, './block', './network.zip'], { cwd: root })
   assert.match(
-    (await run(process.execPath, [validate, './output.zip'], { cwd: root }))
+    (await run(process.execPath, [validate, './network.zip'], { cwd: root }))
       .stdout,
     /Valid package/
   )
-  await assert.rejects(
-    run(process.execPath, [validate], { cwd: root }),
-    (error) => error.code === 1 && /Usage/.test(error.stderr)
+  assert.deepEqual(
+    (await validateArchive(await readFile(path.join(root, 'network.zip'))))
+      .manifest.network,
+    { allowedOrigins: ['https://api.example.com'] }
   )
-  await writeFile(path.join(root, 'bad.zip'), 'bad')
+  manifest.network.allowedOrigins = ['https://example.com; script-src *']
+  await writeFile(filename, JSON.stringify(manifest))
   await assert.rejects(
-    run(process.execPath, [validate, './bad.zip'], { cwd: root }),
-    (error) => error.code === 1 && /Validation failed/.test(error.stderr)
+    run(process.execPath, [pack, './block', './unsafe.zip'], { cwd: root }),
+    (error) => error.code === 1 && /network/.test(error.stderr)
   )
+  await assert.rejects(readFile(path.join(root, 'unsafe.zip')), /ENOENT/)
 })

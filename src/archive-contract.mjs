@@ -3,6 +3,8 @@ import { createReadStream } from 'node:fs'
 import path from 'node:path'
 import { crc32 } from 'node:zlib'
 
+import { allowedOrigins } from './network.mjs'
+
 export const limits = Object.freeze({
   zip: 10 << 20,
   expanded: 30 << 20,
@@ -92,7 +94,10 @@ function parseManifest(data) {
     Array.isArray(manifest) ||
     typeof manifest !== 'object' ||
     Object.keys(manifest).some(
-      (key) => !['schemaVersion', 'name', 'entrypoint'].includes(key)
+      (key) =>
+        !['schemaVersion', 'name', 'entrypoint', 'editor', 'network'].includes(
+          key
+        )
     ) ||
     manifest.schemaVersion !== 1 ||
     typeof manifest.name !== 'string' ||
@@ -102,7 +107,7 @@ function parseManifest(data) {
     typeof manifest.entrypoint !== 'string'
   ) {
     throw new Error(
-      'manifest.json: expected only schemaVersion: 1, a nonblank name (1–80 Unicode characters), and entrypoint'
+      'manifest.json: expected schemaVersion: 1, a nonblank name (1–80 Unicode characters), entrypoint, and optional editor/network; no other properties'
     )
   }
 
@@ -110,6 +115,30 @@ function parseManifest(data) {
 
   if (path.posix.extname(manifest.entrypoint) !== '.html') {
     throw new Error('manifest.json: entrypoint must end in .html')
+  }
+
+  if (manifest.editor != null) {
+    if (
+      Array.isArray(manifest.editor) ||
+      typeof manifest.editor !== 'object' ||
+      Object.keys(manifest.editor).some((key) => key !== 'entrypoint') ||
+      typeof manifest.editor.entrypoint !== 'string'
+    ) {
+      throw new Error(
+        'manifest.json: editor must be null or an object with only an entrypoint string'
+      )
+    }
+
+    assertPath(manifest.editor.entrypoint)
+
+    if (path.posix.extname(manifest.editor.entrypoint) !== '.html') {
+      throw new Error('manifest.json: editor.entrypoint must end in .html')
+    }
+  }
+
+  const origins = allowedOrigins(manifest.network)
+  if (manifest.network != null) {
+    manifest.network = { allowedOrigins: origins }
   }
 
   return manifest
@@ -221,6 +250,12 @@ export async function validateArchive(data) {
     if (!files.has(manifest.entrypoint)) {
       throw new Error(
         `${manifest.entrypoint}: manifest entrypoint does not exist (case sensitive)`
+      )
+    }
+
+    if (manifest.editor != null && !files.has(manifest.editor.entrypoint)) {
+      throw new Error(
+        `${manifest.editor.entrypoint}: manifest editor entrypoint does not exist (case sensitive)`
       )
     }
 

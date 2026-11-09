@@ -16,7 +16,7 @@
     "check": "npm run format:check && npm run check:build && npm test"
   },
   "dependencies": {
-    "@quillow/custom-block-sdk": "0.2.1",
+    "@quillow/custom-block-sdk": "0.6.0",
     "yauzl": "3.4.0",
     "yazl": "3.3.1"
   },

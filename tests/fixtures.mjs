@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises'
 import { crc32, deflateRawSync } from 'node:zlib'
 
 export const manifest = {
@@ -11,6 +12,28 @@ export function baseFiles(value = JSON.stringify(manifest)) {
     { name: 'manifest.json', data: value },
     { name: 'index.html', data: '<h1>Test</h1>' },
   ]
+}
+
+export async function configPageExample() {
+  const guide = await readFile(
+    new URL(
+      '../skills/quillow-custom-block/references/config-page.md',
+      import.meta.url
+    ),
+    'utf8'
+  )
+  const snippets = [...guide.matchAll(/```(json|html|js)\n([\s\S]*?)```/g)]
+  const scripts = snippets.filter(([, language]) => language === 'js')
+
+  return {
+    manifest: JSON.parse(
+      snippets.find(([, language]) => language === 'json')[2]
+    ),
+    html: snippets.find(([, language]) => language === 'html')[2],
+    editorScript: scripts[0][2],
+    readerScript: scripts[1][2],
+    openerScript: scripts[2][2],
+  }
 }
 
 // Small independent ZIP writer: allows malformed metadata that production ZIP
