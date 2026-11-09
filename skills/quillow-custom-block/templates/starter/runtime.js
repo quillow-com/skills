@@ -247,13 +247,14 @@ function timeoutOption(value, name) {
 function readContext(value) {
   if (!isRecord(value) || typeof value.blockId !== "string" || value.blockId.length === 0 || typeof value.versionId !== "string" || value.versionId.length === 0 || value.mode !== "public" && value.mode !== "editor" || !Array.isArray(value.capabilities) || !value.capabilities.every(
     (capability) => typeof capability === "string" && capability.length > 0
-  ) || new Set(value.capabilities).size !== value.capabilities.length)
+  ) || new Set(value.capabilities).size !== value.capabilities.length || value.editor !== void 0 && (!isRecord(value.editor) || typeof value.editor.available !== "boolean"))
     throw protocolError("The host returned an invalid widget context");
   return Object.freeze({
     blockId: value.blockId,
     versionId: value.versionId,
     mode: value.mode,
-    capabilities: Object.freeze([...value.capabilities])
+    capabilities: Object.freeze([...value.capabilities]),
+    ...isRecord(value.editor) ? { editor: Object.freeze({ available: value.editor.available }) } : {}
   });
 }
 function readError(value) {
@@ -391,6 +392,23 @@ function createWidget(context, port, connectionId, requestTimeout) {
   return Object.freeze({
     ...context,
     storage: createStorage(context, request, assertOpen),
+    async openEditor() {
+      assertOpen();
+      if (context.mode !== "editor")
+        throw new WidgetSDKError(
+          "PERMISSION_DENIED",
+          "Opening the block editor requires editor mode"
+        );
+      if (context.editor?.available === false)
+        throw new WidgetSDKError(
+          "EDITOR_UNAVAILABLE",
+          "This block has no available manifest.editor screen"
+        );
+      if (!context.capabilities.includes("editor.open"))
+        throw new WidgetSDKError("PERMISSION_DENIED", "The host has not permitted editor.open");
+      const result = await request("editor.open", {});
+      if (result !== true) throw protocolError("The host did not confirm opening the block editor");
+    },
     destroy() {
       if (closed) return;
       try {
@@ -477,7 +495,7 @@ async function connect(options = {}) {
       fail(
         new WidgetSDKError(
           "CONNECT_TIMEOUT",
-          "Timed out connecting to Quillow: no compatible KV host responded"
+          "Timed out connecting to Quillow: no compatible host responded"
         )
       );
     }, timeout);

@@ -33,7 +33,7 @@ do not assume a particular editor, terminal tool, installation path, or browser 
    `connect()` provides host-backed string storage when the host supports it:
    check each capability, write only in editor mode, and preserve revision tokens.
    Values must be strings; use explicit serialization for structured settings.
-   The bundled SDK 0.5.0 enforces string-only storage over the existing v1 protocol;
+   The bundled SDK 0.6.0 enforces string-only storage over the existing v1 protocol;
    never pass objects directly or expect automatic serialization.
    This is shared block data, not private visitor storage. Browser storage and
    general Quillow account/page data remain unavailable. Resolve requests
@@ -46,6 +46,13 @@ do not assume a particular editor, terminal tool, installation path, or browser 
    do not invent a v2 manifest or a `config` property. Put authoring controls in this
    page when requested: the editor's grid preview does not receive pointer events.
    The page and main block share storage, not JavaScript state or a live subscription.
+   The bundled SDK 0.6.0 supports `widget.openEditor()` with editor mode and the
+   host's `editor.open` capability. When editing older blocks, feature-detect the
+   method and fall back to Quillow's settings gear if their runtime lacks it.
+   Follow the config-page guide for `EDITOR_UNAVAILABLE`, permission errors, and
+   timeouts. Do not invent `openSettings()`, `Quillow.openEditor()`, a custom
+   message protocol, or `window.open` to open the screen. Do not auto-open it on
+   every startup: closing the modal remounts the preview and could cause a loop.
 5. Find the installed directory containing this `SKILL.md`; call its absolute
    path `SKILL_DIR`. Check `node --version` (22.20+). Scripts and references are
    relative to this directory, not to the user's working directory. No package
@@ -91,6 +98,9 @@ do not assume a particular editor, terminal tool, installation path, or browser 
    absent/legacy hosts, revision conflicts, and uncertain writes without retries.
    If a config page is included, test loading/saving in its modal, reopening it,
    and reading the saved data in the refreshed preview and published block.
+   If SDK opening is used, also test the legacy-runtime fallback, public denial,
+   missing screen versus missing capability, confirmation, timeout without retry,
+   and repeated opening without additional modals.
    Plain `file://` or an unsandboxed tab is not a runtime
    compatibility check. Fix clipping, overlap, accidental scrolling, tiny targets,
    and unreadable text rather than reporting them as expected limitations. If no

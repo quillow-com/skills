@@ -45,6 +45,13 @@ editor. See [the config-page guide](skills/quillow-custom-block/references/confi
 for a complete manifest and read/save examples. The default starter stays minimal
 and does not require a settings page.
 
+The bundled SDK 0.6.0 supports opening through `widget.openEditor()` and the
+`editor.open` capability. Examples retain a feature-detected fallback to the gear
+for older runtimes. A compatible host is still required: a missing screen yields `EDITOR_UNAVAILABLE`,
+while public mode or absent permission yields `PERMISSION_DENIED`. No manifest
+version change, popup permission, or custom messaging is needed. See
+[SDK editor opening](skills/quillow-custom-block/references/config-page.md#open-the-editor-through-the-sdk).
+
 The agent keeps editable files, validates the resulting ZIP, and provides a file
 path or downloadable artifact depending on its environment. Select that ZIP in
 your Quillow Custom Code block's upload control. Quillow validates and applies
@@ -63,13 +70,13 @@ remain unavailable. See the skill's
 [runtime guide](skills/quillow-custom-block/references/runtime-and-layout.md), and
 [storage guide](skills/quillow-custom-block/references/storage.md).
 
-The starter includes SDK **0.5.0** as a local ESM module, `runtime.js`. Import
+The starter includes SDK **0.6.0** as a local ESM module, `runtime.js`. Import
 `Quillow`, `connect`, and `WidgetSDKError` from that file as needed; do not load it
 as a classic script or expect `window.Quillow`. The starter starts the theme/layout
-bridge in `app.mjs` and keeps its example interaction local. Connect to storage
-only when the block needs persistent data.
+bridge in `app.mjs` and keeps its example interaction local. Use `connect()` when
+the block needs persistent data or programmatic editor opening.
 
-SDK 0.5.0 enforces string-only storage in its types and runtime validation while
+SDK 0.6.0 enforces string-only storage in its types and runtime validation while
 keeping KV protocol v1. Always send strings and explicitly serialize structured
 settings; there is no automatic conversion. Widget manifest `schemaVersion` also
 remains `1`. See
@@ -124,7 +131,14 @@ QUILLOW_SDK_TEST_ENTRY=/absolute/path/to/custom-block-sdk/dist/index.js npm run 
 ```
 
 This overrides only the browser fixture's runtime. It does not upgrade the
-shipped starter bundle or establish release readiness.
+shipped starter bundle or establish release readiness. The normal browser suite
+checks the shipped SDK 0.6.0 directly: editor opening confirmation, availability,
+permissions, timeouts and teardown all run without an override or skipped cases.
+A simulated legacy runtime also checks the gear fallback. These use scripted
+private-port responses, not the production modal. Local overrides must support
+the same API. For future SDK upgrades, update the exact dependency pin and lockfile,
+rebuild and commit `runtime.js` and `THIRD_PARTY_NOTICES`, update version notes,
+and run both regular and browser checks. Do not ship a local override.
 
 The browser test uses a local HTTP host with the sandbox/CSP/CORS contract from
 Quillow, plus parent bridge fixtures for live theme, font stylesheet, layout

@@ -270,6 +270,85 @@ JSON without overwriting it. Production widgets should validate the complete set
 and define migrations when changing that shape across code versions: storage
 belongs to the block and survives code replacement.
 
+## Open the editor through the SDK
+
+The bundled SDK 0.6.0 provides `widget.openEditor()` to ask Quillow to open this
+same modal through the existing `connect()` session. The method name follows `manifest.editor`:
+it is not `openSettings()`, `Quillow.openEditor()`, a source-code editor, or
+`window.open`. It accepts no URL or block ID and needs no additional network or
+sandbox permissions. The settings gear remains available independently.
+
+**Compatibility:** SDK 0.6.0 includes `openEditor()`, but it still requires host
+support and permission. Existing ZIPs with SDK 0.5.0 or another older runtime do
+not gain this method automatically. When preserving an older runtime, feature-detect
+the method and retain a fallback to the settings gear. The example below works
+with both versions. The normal browser suite checks the shipped 0.6.0 bundle;
+`QUILLOW_SDK_TEST_ENTRY` is only for testing a local build without changing the
+dependency pin or shipped files.
+
+For example, put this helper in a main-entrypoint module such as `open-editor.mjs`.
+Pass the widget from the main document's existing connection; do not create a
+second connection or destroy shared storage state just to open the screen.
+Display its returned status using `textContent` when an intentional authoring
+flow requests opening:
+
+```js
+import { WidgetSDKError } from './runtime.js'
+
+export async function openBlockEditor(widget) {
+  if (widget.mode !== 'editor') {
+    return 'Block settings can only be opened in the Quillow editor.'
+  }
+  if (typeof widget.openEditor !== 'function') {
+    return 'Use the Custom Block settings gear in Quillow; this SDK cannot open it programmatically.'
+  }
+  if (widget.editor?.available === false) {
+    return 'This block has no available editor screen.'
+  }
+  if (!widget.capabilities.includes('editor.open')) {
+    return 'This host has not permitted opening the block editor.'
+  }
+
+  try {
+    await widget.openEditor()
+    return 'Editor opening accepted.'
+  } catch (error) {
+    const code = error instanceof WidgetSDKError ? error.code : 'unknown error'
+    if (code === 'EDITOR_UNAVAILABLE') {
+      return 'This block has no available editor screen.'
+    }
+    if (code === 'PERMISSION_DENIED') {
+      return 'This host has not permitted opening the block editor.'
+    }
+    if (code === 'REQUEST_TIMEOUT') {
+      return 'The editor may have opened. Check Quillow before trying again.'
+    }
+    return `Unable to open the block editor (${code}).`
+  }
+}
+```
+
+Opening requires **editor mode** and `editor.open`. An explicitly unavailable
+screen (`widget.editor.available === false`) gives `EDITOR_UNAVAILABLE`; public
+mode or missing capability gives `PERMISSION_DENIED`. The optional metadata is
+frozen with the session context. Its absence means unknown availability on an
+older host, not proof that the package lacks an editor. The host independently
+checks access and the applied screen. During the initial metadata fetch it defers
+the handshake, bounded by the normal connection timeout, rather than reporting
+that the screen is missing.
+
+`openEditor()` resolves with `undefined` when Quillow **accepts opening**, not
+after the editor iframe loads, saves data, or closes. Repeated requests reuse
+the existing modal; the settings iframe itself is not granted an opening handler.
+Do not automatically retry timeouts: the modal may already be opening.
+`mutationMayHaveSucceeded` remains false because opening is not a storage mutation.
+
+The helper does not call itself on startup. Keep it that way: closing the modal
+remounts the preview, so unconditional opening on every load can trap the author
+in a reopen loop. The grid iframe still has no pointer events; this API does not
+make an inline preview settings button usable. Do not add a nonfunctional button
+or substitute a custom host message when the runtime/host does not support opening.
+
 ## Security and verification
 
 - The editor HTML and other package assets are publicly addressable. The settings
@@ -286,6 +365,10 @@ belongs to the block and survives code replacement.
   editor files, nested imports, initial loading, first and repeated saves, closing
   and reopening the modal, and refreshed preview/public reads. Also test absent
   hosts, read-only mode, missing capabilities, conflicts, and uncertain writes.
+- For SDK opening, test the old-runtime gear fallback, accepted opening, repeated
+  calls, public denial, missing editor metadata versus a denied capability, host
+  errors, timeout without retry, and disposal. Keep any test-host confirmation
+  separate from verifying the actual Quillow modal and its single-instance behavior.
 - Archive validation checks entrypoints, not JS resource references or browser
   behavior. Test the settings form in a sandboxed iframe at modal-like narrow and
   wide sizes; continue testing the main widget at all three grid sizes.

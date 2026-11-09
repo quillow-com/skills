@@ -32,6 +32,7 @@ export async function configPageExample() {
     html: snippets.find(([, language]) => language === 'html')[2],
     editorScript: scripts[0][2],
     readerScript: scripts[1][2],
+    openerScript: scripts[2][2],
   }
 }
 
