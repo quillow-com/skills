@@ -22,7 +22,7 @@ import { packageDirectory } from '../src/package-core.mjs'
 const run = promisify(execFile)
 const skill = new URL('../skills/quillow-custom-block/', import.meta.url)
 
-test('starter ships an SSR-safe local ESM SDK with storage exports', async () => {
+test('starter ships an SSR-safe local ESM SDK with storage exports and no settings opener', async () => {
   const runtime = new URL('templates/starter/runtime.js', skill)
   const { connect, Quillow, WidgetSDKError } = await import(runtime.href)
 
@@ -32,7 +32,10 @@ test('starter ships an SSR-safe local ESM SDK with storage exports', async () =>
   await assert.rejects(connect(), (error) => {
     return error instanceof WidgetSDKError && error.code === 'HOST_UNAVAILABLE'
   })
-  assert.doesNotMatch(await readFile(runtime, 'utf8'), /sourceMappingURL=/)
+  const source = await readFile(runtime, 'utf8')
+
+  assert.doesNotMatch(source, /sourceMappingURL=/)
+  assert.doesNotMatch(source, /openEditor|editor\.open|EDITOR_UNAVAILABLE/)
 })
 
 async function workspace(t) {
